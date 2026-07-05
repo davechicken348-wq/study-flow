@@ -1,0 +1,14 @@
+{
+  "name": "StudyFlow",
+  "short_name": "StudyFlow",
+  "description": "All-in-one study planner, timer, and notes app for students.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f5f7",
+  "theme_color": "#1a7a3c",
+  "icons": [
+    { "src": "assets/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "assets/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
