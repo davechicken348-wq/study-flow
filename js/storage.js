@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'StudyFlowDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORES = {
   subjects:  { keyPath: 'id', indexes: [{ name: 'name', unique: false }] },
@@ -12,6 +12,7 @@ const STORES = {
   notes:     { keyPath: 'id', indexes: [{ name: 'subjectId', unique: false }] },
   goals:     { keyPath: 'id', indexes: [] },
   settings:  { keyPath: 'key', indexes: [] },
+  recordings:{ keyPath: 'id', indexes: [{ name: 'noteId', unique: false }, { name: 'createdAt', unique: false }] },
 };
 
 class Storage {
@@ -137,29 +138,55 @@ class Storage {
 
   /* ---------- Clear All ---------- */
   async clearAll() {
-    const tx = await this.#tx(['subjects', 'sessions', 'notes', 'goals', 'settings'], 'readwrite');
-    ['subjects', 'sessions', 'notes', 'goals', 'settings'].forEach((s) => tx.objectStore(s).clear());
+    const tx = await this.#tx(['subjects', 'sessions', 'notes', 'goals', 'settings', 'recordings'], 'readwrite');
+    ['subjects', 'sessions', 'notes', 'goals', 'settings', 'recordings'].forEach((s) => tx.objectStore(s).clear());
     return new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+  }
+
+  /* ---------- Reset Database ---------- */
+  async resetDatabase() {
+    if (this.#db) { this.#db.close(); this.#db = null; }
+    this.#opening = null;
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase(DB_NAME);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+      req.onblocked = () => reject(new Error('Database reset blocked'));
+    });
+    await this.#ensureDB();
   }
 
   /* ---------- Export / Import ---------- */
   async exportAll() {
-    const [subjects, sessions, notes, goals] = await Promise.all([
-      this.getAllSubjects(), this.getAllSessions(), this.getAllNotes(), this.getAllGoals(),
+    const [subjects, sessions, notes, goals, recordings] = await Promise.all([
+      this.getAllSubjects(), this.getAllSessions(), this.getAllNotes(), this.getAllGoals(), this.getAllRecordings(),
     ]);
-    return { subjects, sessions, notes, goals, exportedAt: new Date().toISOString() };
+    return { subjects, sessions, notes, goals, recordings, exportedAt: new Date().toISOString() };
   }
 
   async importAll(data) {
-    const tx = await this.#tx(['subjects', 'sessions', 'notes', 'goals'], 'readwrite');
-    ['subjects', 'sessions', 'notes', 'goals'].forEach((s) => tx.objectStore(s).clear());
+    const tx = await this.#tx(['subjects', 'sessions', 'notes', 'goals', 'recordings'], 'readwrite');
+    ['subjects', 'sessions', 'notes', 'goals', 'recordings'].forEach((s) => tx.objectStore(s).clear());
     await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
     const saves = [];
     (data.subjects || []).forEach((x) => saves.push(this.saveSubject(x)));
     (data.sessions || []).forEach((x) => saves.push(this.saveSession(x)));
     (data.notes || []).forEach((x) => saves.push(this.saveNote(x)));
     (data.goals || []).forEach((x) => saves.push(this.saveGoal(x)));
+    (data.recordings || []).forEach((x) => saves.push(this.saveRecording(x)));
     await Promise.all(saves);
+  }
+
+  /* ---------- Recordings ---------- */
+  getAllRecordings() { return this.getAll('recordings'); }
+  getRecording(id) { return this.get('recordings', id); }
+  saveRecording(r) {
+    if (!r.createdAt) r.createdAt = new Date().toISOString();
+    return this.put('recordings', r);
+  }
+  deleteRecording(id) { return this.delete('recordings', id); }
+  getRecordingsForNote(noteId) {
+    return this.getAll('recordings').then(list => list.filter(r => r.noteId === noteId));
   }
 }
 

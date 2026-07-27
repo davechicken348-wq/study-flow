@@ -218,7 +218,9 @@ const app = {
       <div class="card mt-lg">
         <div class="card-header flex justify-between items-center">
           <h2>Today's Plan</h2>
-          <button class="btn btn-primary btn-sm" id="dashAddPlanBtn">Add Session</button>
+          <button class="btn btn-primary btn-sm" id="dashAddPlanBtn" aria-label="Add session">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </button>
         </div>
         ${todaySessions.filter((s) => s.source === 'planner').length === 0 ? `
           <div class="empty-state">
@@ -269,7 +271,9 @@ const app = {
       <div class="card mt-lg">
         <div class="card-header flex justify-between items-center">
           <h2>Today's Sessions</h2>
-          <button class="btn btn-primary btn-sm" id="dashAddSubjectBtn">Add Subject</button>
+          <button class="btn btn-primary btn-sm" id="dashAddSubjectBtn" aria-label="Add subject">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
+          </button>
         </div>
         ${todaySessions.filter((s) => s.source === 'timer').length === 0 ? `
           <div class="empty-state">
@@ -325,7 +329,9 @@ const app = {
     el.innerHTML = `
       <div class="page-header flex justify-between items-center">
         <h1>Subjects</h1>
-        <button class="btn btn-primary btn-sm" id="addSubjectBtn">Add Subject</button>
+        <button class="btn btn-primary btn-sm" id="addSubjectBtn" aria-label="Add subject">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
+        </button>
       </div>
       ${subjects.length === 0 ? `
         <div class="empty-state card mt">
@@ -355,8 +361,12 @@ const app = {
                   <div class="flex justify-between items-center">
                     <span class="muted text-sm">${count} sessions · ${formatDuration(total)}</span>
                     <div class="flex gap-xs">
-                      <button class="btn btn-ghost btn-sm" data-action="edit-subject" data-id="${s.id}">Edit</button>
-                      <button class="btn btn-danger btn-sm" data-action="delete-subject" data-id="${s.id}">Delete</button>
+                      <button class="btn btn-ghost btn-sm" data-action="edit-subject" data-id="${s.id}" aria-label="Edit">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
+                      </button>
+                      <button class="btn btn-danger btn-sm" data-action="delete-subject" data-id="${s.id}" aria-label="Delete">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -490,14 +500,20 @@ const app = {
                       <div class="planner-session-name">${subj ? escapeHtml(subj.name) : 'Unknown'}</div>
                       <div class="planner-session-time">${start}${start && end ? ' - ' : ''}${end}</div>
                       <div class="planner-session-actions flex gap-xs mt-sm">
-                        <button class="btn btn-ghost btn-sm" data-action="edit-planner-session" data-id="${s.id}">Edit</button>
-                        <button class="btn btn-danger btn-sm" data-action="delete-planner-session" data-id="${s.id}">×</button>
+                        <button class="btn btn-ghost btn-sm" data-action="edit-planner-session" data-id="${s.id}" aria-label="Edit">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
+                        </button>
+                        <button class="btn btn-danger btn-sm" data-action="delete-planner-session" data-id="${s.id}" aria-label="Delete">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                        </button>
                       </div>
                     </div>
                   `;
                 }).join('')}
               </div>
-              <button class="btn btn-ghost btn-sm btn-block mt-sm" data-action="add-session-day" data-date="${date}">+ Add</button>
+              <button class="btn btn-ghost btn-sm btn-block mt-sm" data-action="add-session-day" data-date="${date}" aria-label="Add session">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
             </div>
           `;
         }).join('')}
@@ -731,7 +747,9 @@ const app = {
     el.innerHTML = `
       <div class="page-header flex justify-between items-center">
         <h1>Notes</h1>
-        <button class="btn btn-primary btn-sm" id="addNoteBtn">Add Note</button>
+        <button class="btn btn-primary btn-sm" id="addNoteBtn" aria-label="Add note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
+        </button>
       </div>
       <div class="flex gap mt mb notes-toolbar">
         <input type="text" id="noteSearch" placeholder="Search notes..." class="form-control">
@@ -765,9 +783,13 @@ const app = {
                 <span class="badge">${subj ? escapeHtml(subj.name) : 'No subject'}</span>
                 <span class="muted text-sm">${formatDate(n.updatedAt || n.createdAt)}</span>
               </div>
-              <div class="flex justify-end gap-xs mt-sm">
-                <button class="btn btn-ghost btn-sm" data-action="edit-note" data-id="${n.id}">Edit</button>
-                <button class="btn btn-danger btn-sm" data-action="delete-note" data-id="${n.id}">Delete</button>
+              <div class="flex justify-end gap-xs mt-sm note-card-actions">
+                <button class="btn btn-ghost btn-sm" data-action="edit-note" data-id="${n.id}" aria-label="Edit">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
+                </button>
+                <button class="btn btn-danger btn-sm" data-action="delete-note" data-id="${n.id}" aria-label="Delete">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                </button>
               </div>
             </div>
           `;
@@ -798,9 +820,13 @@ const app = {
               <span class="badge">${subj ? escapeHtml(subj.name) : 'No subject'}</span>
               <span class="muted text-sm">${formatDate(n.updatedAt || n.createdAt)}</span>
             </div>
-            <div class="flex justify-end gap-xs mt-sm">
-              <button class="btn btn-ghost btn-sm" data-action="edit-note" data-id="${n.id}">Edit</button>
-              <button class="btn btn-danger btn-sm" data-action="delete-note" data-id="${n.id}">Delete</button>
+            <div class="flex justify-end gap-xs mt-sm note-card-actions">
+              <button class="btn btn-ghost btn-sm" data-action="edit-note" data-id="${n.id}" aria-label="Edit">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
+              </button>
+              <button class="btn btn-danger btn-sm" data-action="delete-note" data-id="${n.id}" aria-label="Delete">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+              </button>
             </div>
           </div>
         `;
@@ -927,7 +953,9 @@ const app = {
             Back
           </button>
           <div class="flex gap-xs">
-            <button class="btn btn-ghost btn-sm" id="noteDeleteBtn">Delete</button>
+            <button class="btn btn-danger btn-sm" id="noteDeleteBtn" aria-label="Delete note">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            </button>
           </div>
         </div>
 
@@ -962,6 +990,21 @@ const app = {
         </div>
 
         <div class="note-word-count" id="noteWordCount">${(note.content || '').split(/\s+/).filter(Boolean).length} words</div>
+
+        <div class="card mt" id="noteVoiceMemoCard">
+          <div class="note-voice-memo-header">
+            <h2>Voice memo</h2>
+            <button class="btn btn-primary btn-sm" id="noteRecordBtn" aria-label="Record">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="10"/></svg>
+            </button>
+          </div>
+          <div class="note-recording-status hidden" id="noteRecordingStatus">
+            <span class="badge badge-danger" id="noteRecordingDot">Recording</span>
+            <span class="subtle" id="noteRecordingTimer">00:00</span>
+            <button class="btn btn-danger btn-sm" id="noteStopRecordBtn">Stop</button>
+          </div>
+          <div id="noteRecordingsList"></div>
+        </div>
 
         <div class="note-mdf-help hidden" id="noteMarkdownHelp">
           <div class="note-mdf-help-inner">
@@ -1049,6 +1092,137 @@ const app = {
 
     attachLinkHandlers();
     this.renderBacklinks(note, notes);
+
+    const recordBtn = document.getElementById('noteRecordBtn');
+    const stopBtn = document.getElementById('noteStopRecordBtn');
+    const statusEl = document.getElementById('noteRecordingStatus');
+    const timerEl = document.getElementById('noteRecordingTimer');
+    const recordingsList = document.getElementById('noteRecordingsList');
+
+    let mediaRecorder = null;
+    let chunks = [];
+    let recordingStart = null;
+    let timerInterval = null;
+    let currentAudio = null;
+
+    const formatRecordingTime = (seconds) => {
+      const m = Math.floor(seconds / 60);
+      const s = seconds % 60;
+      return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    };
+
+    const renderRecordings = async () => {
+      const recordings = await Storage.getRecordingsForNote(note.id);
+      if (recordings.length === 0) {
+        recordingsList.innerHTML = '<p class="subtle" style="font-size:0.8rem">No recordings yet</p>';
+        return;
+      }
+      recordingsList.innerHTML = recordings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map((r, idx) => {
+        const date = new Date(r.createdAt);
+        const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        const sizeMB = (r.blob.size / (1024 * 1024)).toFixed(1);
+        return `
+          <div class="note-recording-item" data-recording-id="${r.id}">
+            <div class="note-recording-info">
+              <span class="note-recording-title">Recording ${recordings.length - idx}</span>
+              <span class="subtle" style="font-size:0.72rem">${timeStr} · ${sizeMB} MB</span>
+            </div>
+            <div class="note-recording-actions">
+              <button class="btn btn-ghost btn-sm note-play-btn" data-id="${r.id}" aria-label="Play">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </button>
+              <button class="btn btn-ghost btn-sm note-download-btn" data-id="${r.id}" aria-label="Download">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </button>
+              <button class="btn btn-danger btn-sm note-delete-recording-btn" data-id="${r.id}" aria-label="Delete">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      recordingsList.querySelectorAll('.note-play-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const rec = await Storage.getRecording(btn.dataset.id);
+          if (!rec) return;
+          if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+          const url = URL.createObjectURL(rec.blob);
+          currentAudio = new Audio(url);
+          currentAudio.play();
+          btn.textContent = 'Playing...';
+          currentAudio.onended = () => { btn.textContent = 'Play'; URL.revokeObjectURL(url); };
+        });
+      });
+
+      recordingsList.querySelectorAll('.note-download-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const rec = await Storage.getRecording(btn.dataset.id);
+          if (!rec) return;
+          const url = URL.createObjectURL(rec.blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `note-${note.id}-recording-${rec.id}.webm`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        });
+      });
+
+      recordingsList.querySelectorAll('.note-delete-recording-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Delete this recording?')) return;
+          await Storage.deleteRecording(btn.dataset.id);
+          this.toast('Recording deleted', 'success');
+          renderRecordings();
+        });
+      });
+    };
+
+    recordBtn?.addEventListener('click', async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        chunks = [];
+        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+        mediaRecorder.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop());
+          const blob = new Blob(chunks, { type: 'audio/webm' });
+          const recording = {
+            id: 'rec_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+            noteId: note.id,
+            blob,
+            mimeType: blob.type,
+            size: blob.size,
+          };
+          await Storage.saveRecording(recording);
+          this.toast('Recording saved', 'success');
+          renderRecordings();
+        };
+        mediaRecorder.start();
+        recordingStart = Date.now();
+        recordBtn.classList.add('hidden');
+        statusEl.classList.remove('hidden');
+        timerInterval = setInterval(() => {
+          const elapsed = Math.floor((Date.now() - recordingStart) / 1000);
+          timerEl.textContent = formatRecordingTime(elapsed);
+        }, 1000);
+      } catch (err) {
+        console.error('Microphone error:', err);
+        this.toast('Microphone access denied or unavailable', 'error');
+      }
+    });
+
+    stopBtn?.addEventListener('click', () => {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+      clearInterval(timerInterval);
+      timerEl.textContent = '00:00';
+      statusEl.classList.add('hidden');
+      recordBtn.classList.remove('hidden');
+    });
+
+    renderRecordings();
   },
 
   renderBacklinks(currentNote, allNotes) {
@@ -1316,6 +1490,13 @@ const app = {
         </div>
         <div class="settings-row">
           <div class="settings-row-info">
+            <span>Reset database</span>
+            <span class="subtle">Delete everything including schema. Useful if you want the latest DB version to recreate from scratch.</span>
+          </div>
+          <button class="btn btn-danger btn-sm" id="resetDbBtn">Reset DB</button>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
             <span>Clear all data</span>
             <span class="subtle">Permanently delete all subjects, sessions, notes and goals</span>
           </div>
@@ -1363,6 +1544,18 @@ const app = {
           this.toast('All data cleared', 'success');
           this.handleRoute();
         });
+      }
+    });
+    document.getElementById('resetDbBtn')?.addEventListener('click', async () => {
+      const input = prompt('Type RESET to confirm database reset:');
+      if (input === 'RESET') {
+        try {
+          await Storage.resetDatabase();
+          this.toast('Database reset complete', 'success');
+          this.handleRoute();
+        } catch {
+          this.toast('Reset failed. Please close all tabs and try again.', 'error');
+        }
       }
     });
     const notifToggle = document.getElementById('notificationsToggle');

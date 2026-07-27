@@ -638,6 +638,9 @@ select { cursor: pointer; }
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.note-card .note-card-actions .btn { padding: 7px; min-width: 36px; justify-content: center; }
+.subject-card .btn,
+.planner-session-actions .btn { padding: 7px; min-width: 36px; justify-content: center; }
 
 /* ── Note View ── */
 .note-view { max-width: 900px; }
@@ -749,6 +752,50 @@ select { cursor: pointer; }
   color: var(--text-3);
   margin-top: 8px;
 }
+.note-view-header .btn { padding: 7px; min-width: 36px; justify-content: center; }
+
+/* ── Voice memo ── */
+.note-voice-memo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.note-voice-memo-header h2 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 0;
+}
+.note-recording-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.note-recording-status.hidden { display: none !important; }
+.note-recording-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  transition: background var(--transition), border-color var(--transition);
+}
+.note-recording-item:hover { background: var(--accent-bg); border-color: var(--accent); }
+.note-recording-info { display: flex; flex-direction: column; gap: 2px; }
+.note-recording-title { font-size: 0.85rem; font-weight: 600; color: var(--text); }
+.note-recording-actions { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+.note-recording-actions .btn { padding: 7px; min-width: 36px; justify-content: center; }
 .note-mdf-help { margin-top: 18px; }
 .note-mdf-help.hidden { display: none; }
 .note-mdf-help-inner {
@@ -1081,6 +1128,17 @@ select { cursor: pointer; }
     grid-template-columns: 1fr;
   }
   .note-preview { max-height: 400px; }
+
+  /* Voice memo mobile */
+  .note-voice-memo-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .note-voice-memo-header .btn { width: 100%; }
+  .note-recording-status { flex-wrap: wrap; }
+  .note-recording-item { flex-direction: column; align-items: stretch; }
+  .note-recording-actions { justify-content: stretch; }
+  .note-recording-actions .btn { flex: 1; justify-content: center; }
 
   /* Buttons full width in certain contexts */
   .btn-lg { padding: 12px 20px; }
