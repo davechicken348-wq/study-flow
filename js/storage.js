@@ -16,18 +16,17 @@ const STORES = {
 
 class Storage {
   #db = null;
-  #ready = null;
+  #opening = null;
 
-  constructor() {
-    this.#ready = this.#open();
-  }
+  constructor() { this.#ensureDB(); }
 
-  ready() { return this.#ready; }
+  ready() { return this.#ensureDB(); }
 
-  #open() {
-    return new Promise((resolve, reject) => {
+  #ensureDB() {
+    if (this.#db) return Promise.resolve();
+    if (this.#opening) return this.#opening;
+    this.#opening = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
-
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
         for (const [name, cfg] of Object.entries(STORES)) {
@@ -36,15 +35,36 @@ class Storage {
           cfg.indexes.forEach((idx) => store.createIndex(idx.name, idx.name, { unique: idx.unique }));
         }
       };
-
-      req.onsuccess = () => { this.#db = req.result; resolve(this); };
-      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        this.#db = req.result;
+        this.#opening = null;
+        this.#db.onversionchange = () => { this.#db.close(); this.#db = null; };
+        this.#db.onclose = () => { this.#db = null; };
+        resolve();
+      };
+      req.onerror = () => { this.#opening = null; reject(req.error); };
     });
+    return this.#opening;
+  }
+
+  async #tx(stores, mode = 'readonly') {
+    await this.#ensureDB();
+    try {
+      const names = Array.isArray(stores) ? stores : [stores];
+      return this.#db.transaction(names, mode);
+    } catch (e) {
+      if (e instanceof DOMException) {
+        this.#db = null;
+        await this.#ensureDB();
+        const names = Array.isArray(stores) ? stores : [stores];
+        return this.#db.transaction(names, mode);
+      }
+      throw e;
+    }
   }
 
   async #store(name, mode = 'readonly') {
-    await this.ready();
-    return this.#db.transaction(name, mode).objectStore(name);
+    return (await this.#tx(name, mode)).objectStore(name);
   }
 
   #wrap(req) {
@@ -67,9 +87,7 @@ class Storage {
     return this.put('subjects', s);
   }
   async deleteSubject(id) {
-    await this.ready();
-    // Delete subject + all its sessions and notes in one transaction
-    const tx = this.#db.transaction(['subjects', 'sessions', 'notes'], 'readwrite');
+    const tx = await this.#tx(['subjects', 'sessions', 'notes'], 'readwrite');
     const del = (store, index, value) => new Promise((res) => {
       const req = tx.objectStore(store).index(index).openCursor(IDBKeyRange.only(value));
       req.onsuccess = (e) => {
@@ -87,7 +105,10 @@ class Storage {
   getSession(id) { return this.get('sessions', id); }
   saveSession(s) {
     if (!s.createdAt) s.createdAt = new Date().toISOString();
-    if (!s.date && s.startTime) s.date = s.startTime.split('T')[0];
+    if (!s.date && s.startTime) {
+      const d = new Date(s.startTime);
+      s.date = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
     return this.put('sessions', s);
   }
   deleteSession(id) { return this.delete('sessions', id); }
@@ -116,8 +137,7 @@ class Storage {
 
   /* ---------- Clear All ---------- */
   async clearAll() {
-    await this.ready();
-    const tx = this.#db.transaction(['subjects', 'sessions', 'notes', 'goals', 'settings'], 'readwrite');
+    const tx = await this.#tx(['subjects', 'sessions', 'notes', 'goals', 'settings'], 'readwrite');
     ['subjects', 'sessions', 'notes', 'goals', 'settings'].forEach((s) => tx.objectStore(s).clear());
     return new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
   }
@@ -131,6 +151,9 @@ class Storage {
   }
 
   async importAll(data) {
+    const tx = await this.#tx(['subjects', 'sessions', 'notes', 'goals'], 'readwrite');
+    ['subjects', 'sessions', 'notes', 'goals'].forEach((s) => tx.objectStore(s).clear());
+    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
     const saves = [];
     (data.subjects || []).forEach((x) => saves.push(this.saveSubject(x)));
     (data.sessions || []).forEach((x) => saves.push(this.saveSession(x)));

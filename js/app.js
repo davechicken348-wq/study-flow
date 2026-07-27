@@ -1,4 +1,4 @@
-import { generateId, getToday, formatDate, formatTime, formatDuration, formatDurationClock, getWeekDates, getStartOfWeek, escapeHtml, debounce } from './utils.js';
+import { generateId, getToday, formatDate, formatTime, formatDuration, formatDurationClock, getWeekDates, getStartOfWeek, escapeHtml, debounce, parseMarkdown } from './utils.js';
 import Storage from './storage.js';
 
 const PRESET_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ef4444', '#64748b'];
@@ -14,6 +14,7 @@ const app = {
     this.initTheme();
     this.setupListeners();
     await this.restoreTimerState();
+    this.initNotifications();
     this.handleRoute();
   },
 
@@ -76,7 +77,15 @@ const app = {
   },
 
   handleRoute() {
-    const hash = window.location.hash.slice(1) || 'dashboard';
+    const hash = window.location.hash.slice(1);
+
+    const noteMatch = hash.match(/^note\/(.+)$/);
+    if (noteMatch) {
+      this.renderNote(noteMatch[1]);
+      return;
+    }
+
+    const page = hash || 'dashboard';
 
     // Sync sidebar nav
     document.querySelectorAll('.nav-item').forEach((el) => {
@@ -208,10 +217,10 @@ const app = {
 
       <div class="card mt-lg">
         <div class="card-header flex justify-between items-center">
-          <h2>Today's Sessions</h2>
-          <button class="btn btn-primary btn-sm" id="dashAddSubjectBtn">Add Subject</button>
+          <h2>Today's Plan</h2>
+          <button class="btn btn-primary btn-sm" id="dashAddPlanBtn">Add Session</button>
         </div>
-        ${todaySessions.length === 0 ? `
+        ${todaySessions.filter((s) => s.source === 'planner').length === 0 ? `
           <div class="empty-state">
             <svg class="empty-illo" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
               <circle cx="60" cy="60" r="54" fill="var(--accent-bg)"/>
@@ -222,11 +231,62 @@ const app = {
               <circle cx="82" cy="78" r="14" fill="var(--accent)"/>
               <path d="M76 78h12M82 72v12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
             </svg>
-            <h3>No sessions yet today</h3>
-            <p>Start the timer or add a subject to log your first study session.</p>
+            <h3>No planned sessions today</h3>
+            <p>Plan your study sessions in the Planner to see them here.</p>
           </div>` : `
           <div class="mt">
-            ${todaySessions.map((s) => {
+            ${todaySessions.filter((s) => s.source === 'planner').sort((a, b) => {
+              if (!a.startTime) return 1;
+              if (!b.startTime) return -1;
+              return a.startTime.localeCompare(b.startTime);
+            }).map((s) => {
+              const subj = subjects.find((x) => x.id === s.subjectId);
+              const start = s.startTime ? formatTime(s.startTime) : '';
+              const end = s.endTime ? formatTime(s.endTime) : '';
+              const now = new Date();
+              const sessionStart = s.startTime ? new Date(s.startTime) : null;
+              let timeLabel = '';
+              if (sessionStart) {
+                const diffMs = sessionStart.getTime() - now.getTime();
+                const diffMin = Math.round(diffMs / 60000);
+                if (diffMin > 0 && diffMin <= 60) timeLabel = `in ${diffMin}m`;
+                else if (diffMin > 60) timeLabel = `in ${Math.floor(diffMin / 60)}h ${diffMin % 60}m`;
+              }
+              return `
+                <div class="flex justify-between items-center mb-sm">
+                  <div>
+                    <div class="font-medium">${subj ? escapeHtml(subj.name) : 'Unknown'}</div>
+                    <div class="muted text-sm">${start}${start && end ? ' - ' : ''}${end}${s.description ? ' · ' + escapeHtml(s.description) : ''}</div>
+                  </div>
+                  <span class="badge ${timeLabel ? 'badge-warning' : 'badge-success'}">${timeLabel || 'Scheduled'}</span>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `}
+      </div>
+
+      <div class="card mt-lg">
+        <div class="card-header flex justify-between items-center">
+          <h2>Today's Sessions</h2>
+          <button class="btn btn-primary btn-sm" id="dashAddSubjectBtn">Add Subject</button>
+        </div>
+        ${todaySessions.filter((s) => s.source === 'timer').length === 0 ? `
+          <div class="empty-state">
+            <svg class="empty-illo" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="60" cy="60" r="54" fill="var(--accent-bg)"/>
+              <rect x="34" y="38" width="52" height="44" rx="6" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/>
+              <rect x="42" y="50" width="20" height="3" rx="1.5" fill="var(--accent)" opacity="0.5"/>
+              <rect x="42" y="57" width="36" height="3" rx="1.5" fill="var(--accent)" opacity="0.3"/>
+              <rect x="42" y="64" width="28" height="3" rx="1.5" fill="var(--accent)" opacity="0.3"/>
+              <circle cx="82" cy="78" r="14" fill="var(--accent)"/>
+              <path d="M76 78h12M82 72v12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+            </svg>
+            <h3>No timer sessions yet today</h3>
+            <p>Use the Timer to start tracking your study time.</p>
+          </div>` : `
+          <div class="mt">
+            ${todaySessions.filter((s) => s.source === 'timer').map((s) => {
               const subj = subjects.find((x) => x.id === s.subjectId);
               const status = s.paused ? 'Paused' : (s.endTime ? formatDuration(s.duration || 0) : 'Running');
               return `
@@ -254,6 +314,7 @@ const app = {
       ` : ''}
     `;
     document.getElementById('dashAddSubjectBtn')?.addEventListener('click', () => this.showSubjectForm());
+    document.getElementById('dashAddPlanBtn')?.addEventListener('click', () => this.showSessionForm({ date: getToday() }));
   },
 
   async renderSubjects() {
@@ -325,14 +386,14 @@ const app = {
         <div class="modal">
           <div class="modal-header"><h2>${isEdit ? 'Edit' : 'Add'} Subject</h2></div>
           <form id="subjectForm" class="p">
-            <input type="hidden" id="subjectId" value="${escapeHtml(data.id)}">
+            <input type="hidden" id="subjectId" value="${data.id}">
             <div class="form-group">
               <label>Name</label>
-              <input type="text" id="subjectName" required value="${escapeHtml(data.name)}">
+              <input type="text" id="subjectName" required value="${data.name}">
             </div>
             <div class="form-group">
               <label>Description</label>
-              <textarea id="subjectDesc">${escapeHtml(data.description || '')}</textarea>
+              <textarea id="subjectDesc">${data.description || ''}</textarea>
             </div>
             <div class="form-group">
               <label>Color</label>
@@ -341,7 +402,7 @@ const app = {
                   <div class="color-swatch ${data.color === c ? 'selected' : ''}" data-color="${c}" style="background: ${c}"></div>
                 `).join('')}
               </div>
-              <input type="hidden" id="subjectColor" value="${escapeHtml(data.color)}">
+              <input type="hidden" id="subjectColor" value="${data.color}">
             </div>
             <div class="flex justify-end gap mt">
               <button type="button" class="btn btn-ghost" id="cancelModal">Cancel</button>
@@ -460,19 +521,19 @@ const app = {
   async showSessionForm(session) {
     const subjects = await Storage.getAllSubjects();
     const isEdit = !!(session && session.id);
-    const data = (session && session.id) ? session : { id: generateId(), subjectId: '', date: session?.date || getToday(), startTime: '', endTime: '', description: '' };
+    const data = (session && session.id) ? session : { id: generateId(), subjectId: '', date: session?.date || getToday(), startTime: '', endTime: '', description: '', source: 'planner' };
 
     this.openModal(`
       <div class="modal-overlay">
         <div class="modal">
           <div class="modal-header"><h2>${isEdit ? 'Edit' : 'Add'} Session</h2></div>
           <form id="sessionForm" class="p">
-            <input type="hidden" id="sessionId" value="${escapeHtml(data.id)}">
+            <input type="hidden" id="sessionId" value="${data.id}">
             <div class="form-group">
               <label>Subject</label>
               <select id="sessionSubject">
                 <option value="">Select subject</option>
-                ${subjects.map((s) => `<option value="${s.id}" ${data.subjectId === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
+                ${subjects.map((s) => `<option value="${s.id}" ${data.subjectId === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
               </select>
             </div>
             <div class="form-group">
@@ -489,7 +550,7 @@ const app = {
             </div>
             <div class="form-group">
               <label>Description</label>
-              <textarea id="sessionDesc">${escapeHtml(data.description || '')}</textarea>
+              <textarea id="sessionDesc">${data.description || ''}</textarea>
             </div>
             <div class="flex justify-end gap mt">
               <button type="button" class="btn btn-ghost" id="cancelModal">Cancel</button>
@@ -518,7 +579,7 @@ const app = {
       const duration = endTime ? Math.floor((new Date(endTime) - new Date(startTime)) / 1000) : null;
 
       const existing = id ? (await Storage.getSession(id)) : null;
-      const sess = { ...existing, id, subjectId, date, startTime, endTime, duration, description: desc, paused: false };
+      const sess = { ...existing, id, subjectId, date, startTime, endTime, duration, description: desc, paused: false, source: existing?.source || 'planner' };
       await Storage.saveSession(sess);
       this.toast(isEdit ? 'Session updated' : 'Session added', 'success');
       this.closeModals();
@@ -616,18 +677,20 @@ const app = {
     clearInterval(this.timerInterval);
     const endTime = new Date().toISOString();
     const duration = this.timerElapsed;
-    if (this.timerSession) {
+    if (this.timerSession && duration > 0) {
       this.timerSession.endTime = endTime;
       this.timerSession.duration = duration;
       this.timerSession.paused = false;
       await Storage.saveSession(this.timerSession);
+      this.toast('Session saved', 'success');
+    } else {
+      this.toast('Timer reset', 'success');
     }
     this.timerRunning = false;
     this.timerElapsed = 0;
     this.timerStartTime = null;
     this.timerInterval = null;
     this.timerSession = null;
-    this.toast('Session saved', 'success');
     this.renderTimer();
   },
 
@@ -670,7 +733,7 @@ const app = {
         <h1>Notes</h1>
         <button class="btn btn-primary btn-sm" id="addNoteBtn">Add Note</button>
       </div>
-      <div class="flex gap mb notes-toolbar">
+      <div class="flex gap mt mb notes-toolbar">
         <input type="text" id="noteSearch" placeholder="Search notes..." class="form-control">
         <select id="noteSubjectFilter" class="form-control">
           <option value="">All subjects</option>
@@ -695,7 +758,7 @@ const app = {
           </div>` : notes.map((n) => {
           const subj = subjects.find((x) => x.id === n.subjectId);
           return `
-            <div class="card note-card">
+            <div class="card note-card" data-note-id="${n.id}">
               <h3>${escapeHtml(n.title)}</h3>
               <p class="note-content-preview muted">${escapeHtml(n.content || '')}</p>
               <div class="flex justify-between items-center mt">
@@ -728,7 +791,7 @@ const app = {
       grid.innerHTML = filtered.length === 0 ? '<p class="muted">No notes match your search.</p>' : filtered.map((n) => {
         const subj = subjects.find((x) => x.id === n.subjectId);
         return `
-          <div class="card note-card">
+          <div class="card note-card" data-note-id="${n.id}">
             <h3>${escapeHtml(n.title)}</h3>
             <p class="note-content-preview muted">${escapeHtml(n.content || '')}</p>
             <div class="flex justify-between items-center mt">
@@ -749,6 +812,13 @@ const app = {
       grid.querySelectorAll('[data-action="delete-note"]').forEach((b) => {
         b.addEventListener('click', () => this.deleteNote(b.dataset.id));
       });
+      grid.querySelectorAll('.note-card').forEach((card) => {
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('[data-action="edit-note"]') || e.target.closest('[data-action="delete-note"]')) return;
+          history.pushState(null, '', `#note/${card.dataset.noteId}`);
+          this.handleRoute();
+        });
+      });
     };
 
     search.addEventListener('input', debounce(applyFilter, 300));
@@ -760,6 +830,13 @@ const app = {
     });
     el.querySelectorAll('[data-action="delete-note"]').forEach((b) => {
       b.addEventListener('click', () => this.deleteNote(b.dataset.id));
+    });
+    el.querySelectorAll('.note-card').forEach((card) => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('[data-action="edit-note"]') || e.target.closest('[data-action="delete-note"]')) return;
+        history.pushState(null, '', `#note/${card.dataset.noteId}`);
+        this.handleRoute();
+      });
     });
   },
 
@@ -773,21 +850,21 @@ const app = {
         <div class="modal">
           <div class="modal-header"><h2>${isEdit ? 'Edit' : 'Add'} Note</h2></div>
           <form id="noteForm" class="p">
-            <input type="hidden" id="noteId" value="${escapeHtml(data.id)}">
+            <input type="hidden" id="noteId" value="${data.id}">
             <div class="form-group">
               <label>Title</label>
-              <input type="text" id="noteTitle" required value="${escapeHtml(data.title)}">
+              <input type="text" id="noteTitle" required value="${data.title}">
             </div>
             <div class="form-group">
               <label>Subject</label>
               <select id="noteSubject">
                 <option value="">No subject</option>
-                ${subjects.map((s) => `<option value="${s.id}" ${data.subjectId === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
+                ${subjects.map((s) => `<option value="${s.id}" ${data.subjectId === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
               </select>
             </div>
             <div class="form-group">
               <label>Content</label>
-              <textarea id="noteContent" rows="5">${escapeHtml(data.content || '')}</textarea>
+              <textarea id="noteContent" rows="5">${data.content || ''}</textarea>
             </div>
             <div class="flex justify-end gap mt">
               <button type="button" class="btn btn-ghost" id="cancelModal">Cancel</button>
@@ -821,6 +898,191 @@ const app = {
     await Storage.deleteNote(id);
     this.toast('Note deleted', 'success');
     this.renderNotes();
+  },
+
+  async renderNote(noteId) {
+    const [notes, subjects] = await Promise.all([
+      Storage.getAllNotes(), Storage.getAllSubjects(),
+    ]);
+    const note = notes.find(n => n.id === noteId);
+
+    if (!note) {
+      document.getElementById('pageContent').innerHTML = `
+        <div class="empty-state card">
+          <h3>Note not found</h3>
+          <p>This note may have been deleted.</p>
+        </div>
+      `;
+      return;
+    }
+
+    const subj = subjects.find(s => s.id === note.subjectId);
+    const el = document.getElementById('pageContent');
+
+    el.innerHTML = `
+      <div class="note-view">
+        <div class="note-view-header">
+          <button class="btn btn-ghost btn-sm" id="noteBackBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            Back
+          </button>
+          <div class="flex gap-xs">
+            <button class="btn btn-ghost btn-sm" id="noteDeleteBtn">Delete</button>
+          </div>
+        </div>
+
+        <div class="note-view-meta">
+          <input type="text" id="noteTitleInput" value="${escapeHtml(note.title)}" placeholder="Note title" style="font-size:1.2rem;font-weight:600;flex:1;min-width:200px">
+          <select id="noteSubjectSelect">
+            <option value="">No subject</option>
+            ${subjects.map(s => `<option value="${s.id}" ${note.subjectId === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
+          </select>
+          <span class="badge">${formatDate(note.updatedAt || note.createdAt)}</span>
+        </div>
+
+        <div class="note-editor-wrap">
+          <div>
+            <div class="note-meta-row" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span class="subtle" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em">Editor</span>
+              <button class="btn btn-ghost btn-sm" id="noteMarkdownHelpBtn" style="padding:4px 10px;font-size:0.75rem">Markdown guide</button>
+            </div>
+            <div class="note-editor">
+              <textarea id="noteContentInput" placeholder="Start writing...">${escapeHtml(note.content || '')}</textarea>
+            </div>
+          </div>
+          <div>
+            <div class="note-meta-row" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span class="subtle" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em">Preview</span>
+              <span class="subtle" style="font-size:0.72rem">Live</span>
+            </div>
+            <div class="note-preview" id="notePreview">
+              ${parseMarkdown(note.content || '')}
+            </div>
+          </div>
+        </div>
+
+        <div class="note-word-count" id="noteWordCount">${(note.content || '').split(/\s+/).filter(Boolean).length} words</div>
+
+        <div class="note-mdf-help hidden" id="noteMarkdownHelp">
+          <div class="note-mdf-help-inner">
+            <h3>Markdown reference</h3>
+            <div class="note-mdf-grid">
+              <div class="note-mdf-row"><span class="mdf-example"># Heading</span><span class="mdf-desc">H1</span></div>
+              <div class="note-mdf-row"><span class="mdf-example">## Heading</span><span class="mdf-desc">H2</span></div>
+              <div class="note-mdf-row"><span class="mdf-example">### Heading</span><span class="mdf-desc">H3</span></div>
+              <div class="note-mdf-row"><span class="mdf-example">**bold**</span><span class="mdf-desc">Bold</span></div>
+              <div class="note-mdf-row"><span class="mdf-example">*italic*</span><span class="mdf-desc">Italic</span></div>
+              <div class="note-mdf-row"><span class="mdf-example">***bold italic***</span><span class="mdf-desc">Both</span></div>
+              <div class="note-mdf-row"><span class="mdf-example">- item</span><span class="mdf-desc">List</span></div>
+              <div class="note-mdf-row"><span class="mdf-example">- [ ] task</span><span class="mdf-desc">Checklist</span></div>
+              <div class="note-mdf-row"><span class="mdf-example">- [x] done</span><span class="mdf-desc">Checked</span></div>
+              <div class="note-mdf-row"><span class="mdf-example">[[Note Title]]</span><span class="mdf-desc">Link note</span></div>
+            </div>
+            <button class="btn btn-ghost btn-sm mt" id="noteMarkdownCloseBtn">Close</button>
+          </div>
+        </div>
+
+        <div class="note-backlinks" id="noteBacklinks"></div>
+      </div>
+    `;
+
+    document.getElementById('noteBackBtn')?.addEventListener('click', () => {
+      history.pushState(null, '', '#notes');
+      this.handleRoute();
+    });
+
+    document.getElementById('noteMarkdownHelpBtn')?.addEventListener('click', () => {
+      document.getElementById('noteMarkdownHelp').classList.remove('hidden');
+    });
+    document.getElementById('noteMarkdownCloseBtn')?.addEventListener('click', () => {
+      document.getElementById('noteMarkdownHelp').classList.add('hidden');
+    });
+
+    document.getElementById('noteDeleteBtn')?.addEventListener('click', async () => {
+      if (!confirm('Delete this note?')) return;
+      await Storage.deleteNote(note.id);
+      this.toast('Note deleted', 'success');
+      history.pushState(null, '', '#notes');
+      this.handleRoute();
+    });
+
+    const titleInput = document.getElementById('noteTitleInput');
+    const contentInput = document.getElementById('noteContentInput');
+    const preview = document.getElementById('notePreview');
+    const wordCount = document.getElementById('noteWordCount');
+
+    const attachLinkHandlers = () => {
+      preview.querySelectorAll('.note-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          const targetTitle = link.dataset.noteTitle;
+          const target = notes.find(n => n.title.toLowerCase() === targetTitle.toLowerCase());
+          if (target) {
+            history.pushState(null, '', `#note/${target.id}`);
+            this.handleRoute();
+          } else {
+            this.toast('Note not found: ' + targetTitle, 'error');
+          }
+        });
+      });
+    };
+
+    const updatePreview = debounce(async () => {
+      const content = contentInput.value || '';
+      preview.innerHTML = parseMarkdown(content);
+      wordCount.textContent = content.split(/\s+/).filter(Boolean).length + ' words';
+      attachLinkHandlers();
+
+      const title = titleInput.value.trim();
+      const subjectId = document.getElementById('noteSubjectSelect').value || null;
+      if (!title) return;
+
+      const existing = await Storage.getNote(note.id);
+      const noteObj = { ...existing, id: note.id, title, subjectId, content };
+      await Storage.saveNote(noteObj);
+      this.renderBacklinks(noteObj, await Storage.getAllNotes());
+    }, 400);
+
+    titleInput?.addEventListener('input', updatePreview);
+    contentInput?.addEventListener('input', updatePreview);
+    document.getElementById('noteSubjectSelect')?.addEventListener('change', updatePreview);
+
+    attachLinkHandlers();
+    this.renderBacklinks(note, notes);
+  },
+
+  renderBacklinks(currentNote, allNotes) {
+    const container = document.getElementById('noteBacklinks');
+    if (!container) return;
+
+    const escapedTitle = currentNote.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const backlinks = allNotes.filter(n => {
+      if (n.id === currentNote.id) return false;
+      const regex = new RegExp('\\[\\[' + escapedTitle + '\\]\\]', 'i');
+      return regex.test(n.content || '');
+    });
+
+    if (backlinks.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+
+    container.innerHTML = `
+      <h3>Linked from</h3>
+      ${backlinks.map(n => `
+        <div class="note-backlink-item" data-note-id="${n.id}">
+          <strong>${escapeHtml(n.title)}</strong>
+          <span class="muted text-sm">${formatDate(n.updatedAt || n.createdAt)}</span>
+        </div>
+      `).join('')}
+    `;
+
+    container.querySelectorAll('.note-backlink-item').forEach(item => {
+      item.addEventListener('click', () => {
+        history.pushState(null, '', `#note/${item.dataset.noteId}`);
+        this.handleRoute();
+      });
+    });
   },
 
   async renderStatistics() {
@@ -1010,6 +1272,20 @@ const app = {
 
       <div class="settings-section card">
         <div class="settings-section-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7 3 9 3 9h6s3-2 3-9z"/><path d="M12 18v-4"/><path d="M8 18v-1"/><path d="M16 18v-3"/></svg>
+          Notifications
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span>Study reminders</span>
+            <span class="subtle">Get notified 15 minutes before a planned session</span>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="notificationsToggle">Enable</button>
+        </div>
+      </div>
+
+      <div class="settings-section card">
+        <div class="settings-section-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
           Data
         </div>
@@ -1089,6 +1365,58 @@ const app = {
         });
       }
     });
+    const notifToggle = document.getElementById('notificationsToggle');
+    if (notifToggle) {
+      const updateNotifToggle = () => {
+        if (!('Notification' in window)) {
+          notifToggle.textContent = 'Unavailable';
+          notifToggle.disabled = true;
+          return;
+        }
+        const stored = localStorage.getItem('notificationsEnabled') !== 'false';
+        const granted = Notification.permission === 'granted';
+        const denied = Notification.permission === 'denied';
+        const enabled = stored && granted;
+        notifToggle.textContent = denied ? 'Blocked' : enabled ? 'Disable' : 'Enable';
+        notifToggle.disabled = denied;
+        notifToggle.classList.toggle('btn-ghost', !enabled && !denied);
+        notifToggle.classList.toggle('btn-primary', enabled);
+        notifToggle.classList.toggle('btn-danger', denied);
+      };
+      updateNotifToggle();
+      notifToggle.addEventListener('click', async () => {
+        const current = localStorage.getItem('notificationsEnabled') !== 'false';
+        if (current) {
+          localStorage.setItem('notificationsEnabled', 'false');
+          await Storage.setSetting('notificationsEnabled', 'false');
+          this.toast('Notifications disabled. Browser permission remains granted — revoke in site settings if needed.', 'success');
+        } else {
+          if (Notification.permission === 'denied') {
+            this.toast('Notifications blocked in browser. Please enable in site settings.', 'error');
+            return;
+          }
+          localStorage.setItem('notificationsEnabled', 'true');
+          await Storage.setSetting('notificationsEnabled', 'true');
+          await this.requestNotificationPermission();
+          if (Notification.permission === 'granted') {
+            this.toast('Notifications enabled', 'success');
+          }
+        }
+        updateNotifToggle();
+      });
+      if ('permissions' in navigator && 'query' in navigator.permissions) {
+        navigator.permissions.query({ name: 'notifications' }).then((status) => {
+          status.onchange = () => {
+            if (Notification.permission === 'granted') {
+              localStorage.setItem('notificationsEnabled', 'true');
+            } else if (Notification.permission === 'denied') {
+              localStorage.setItem('notificationsEnabled', 'false');
+            }
+            updateNotifToggle();
+          };
+        }).catch(() => {});
+      }
+    }
   },
 
   calculateStreak(sessions) {
@@ -1102,7 +1430,7 @@ const app = {
       checkDate.setDate(checkDate.getDate() - 1);
     }
     while (true) {
-      const ds = checkDate.toISOString().split('T')[0];
+      const ds = checkDate.getFullYear() + '-' + String(checkDate.getMonth() + 1).padStart(2, '0') + '-' + String(checkDate.getDate()).padStart(2, '0');
       if (days.has(ds)) {
         streak++;
         checkDate.setDate(checkDate.getDate() - 1);
@@ -1120,6 +1448,96 @@ const app = {
         document.getElementById('installPrompt').classList.add('hidden');
         window.deferredPrompt = null;
       });
+    }
+  },
+
+  initNotifications() {
+    if (!('Notification' in window)) return;
+    const stored = localStorage.getItem('notificationsEnabled');
+    if (stored === 'true' || stored === null) {
+      if (Notification.permission === 'granted') {
+        this.registerPeriodicSync();
+        Storage.setSetting('notificationsEnabled', 'true');
+      } else if (Notification.permission === 'denied') {
+        localStorage.setItem('notificationsEnabled', 'false');
+        Storage.setSetting('notificationsEnabled', 'false');
+      } else if (Notification.permission === 'default') {
+        this.requestNotificationPermission();
+      }
+    } else {
+      Storage.setSetting('notificationsEnabled', 'false');
+    }
+    setInterval(() => {
+      this.checkUpcomingSessions();
+      this.pingSW();
+    }, 60000);
+    this.checkUpcomingSessions();
+  },
+
+  async requestNotificationPermission() {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'denied') {
+      this.toast('Notifications blocked in browser. Please enable in site settings.', 'error');
+      return;
+    }
+    if (Notification.permission === 'default') {
+      await Notification.requestPermission();
+    }
+    await this.registerPeriodicSync();
+  },
+
+  async registerPeriodicSync() {
+    if (!('serviceWorker' in navigator)) return;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if ('periodicSync' in reg) {
+        const status = await navigator.permissions.query({ name: 'periodic-background-sync' });
+        if (status.state === 'granted') {
+          await reg.periodicSync.register('studyflow-check', { minInterval: 15 * 60 * 1000 });
+        }
+      }
+    } catch { /* not supported */ }
+  },
+
+  async pingSW() {
+    if (!('serviceWorker' in navigator) || Notification.permission !== 'granted') return;
+    if (localStorage.getItem('notificationsEnabled') === 'false') return;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      reg.active?.postMessage('CHECK_SESSIONS');
+    } catch { /* ignore */ }
+  },
+
+  async checkUpcomingSessions() {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if (localStorage.getItem('notificationsEnabled') === 'false') return;
+    const sessions = await Storage.getAllSessions();
+    const now = new Date();
+    const today = getToday();
+    const upcoming = sessions.filter((s) => {
+      if (s.date !== today || !s.startTime || s.endTime || s.notified) return false;
+      const start = new Date(s.startTime);
+      const diffMin = (start.getTime() - now.getTime()) / 60000;
+      return diffMin > 0 && diffMin <= 15;
+    });
+    for (const s of upcoming) {
+      const subjects = await Storage.getAllSubjects();
+      const subj = subjects.find((x) => x.id === s.subjectId);
+      const start = formatTime(s.startTime);
+      this.showNotification(
+        'Study session starting soon',
+        `${subj ? subj.name : 'Study'} at ${start}`
+      );
+      s.notified = true;
+      await Storage.saveSession(s);
+    }
+  },
+
+  showNotification(title, body) {
+    try {
+      new Notification(title, { body, icon: 'assets/icons/favicon-32x32.png' });
+    } catch {
+      // Notification API not available
     }
   },
 };

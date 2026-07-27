@@ -7,7 +7,8 @@ export function generateId() {
 }
 
 export function getToday() {
-  return new Date().toISOString().split('T')[0];
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
 export function formatDate(iso) {
@@ -71,4 +72,69 @@ export function escapeHtml(str) {
 export function debounce(fn, ms) {
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+export function parseMarkdown(text) {
+  if (!text) return '';
+  const lines = text.split('\n');
+  let html = '';
+  let inList = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+
+    if (line.startsWith('### ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += '<h4>' + escapeHtml(line.slice(4)) + '</h4>';
+      continue;
+    }
+    if (line.startsWith('## ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += '<h3>' + escapeHtml(line.slice(3)) + '</h3>';
+      continue;
+    }
+    if (line.startsWith('# ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += '<h2>' + escapeHtml(line.slice(2)) + '</h2>';
+      continue;
+    }
+
+    const checkedMatch = line.match(/^- \[x\] (.*)$/i);
+    const uncheckedMatch = line.match(/^- \[ \] (.*)$/);
+    if (checkedMatch) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += '<div class="checklist-item checked"><input type="checkbox" checked disabled><span>' + escapeHtml(checkedMatch[1]) + '</span></div>';
+      continue;
+    }
+    if (uncheckedMatch) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += '<div class="checklist-item"><input type="checkbox" disabled><span>' + escapeHtml(uncheckedMatch[1]) + '</span></div>';
+      continue;
+    }
+
+    if (line.startsWith('- ')) {
+      if (!inList) { html += '<ul>'; inList = true; }
+      html += '<li>' + escapeHtml(line.slice(2)) + '</li>';
+      continue;
+    }
+
+    if (inList) { html += '</ul>'; inList = false; }
+
+    if (line.trim() === '') {
+      html += '<br>';
+      continue;
+    }
+
+    let processed = escapeHtml(line);
+    processed = processed.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    processed = processed.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    processed = processed.replace(/\[\[(.*?)\]\]/g, '<a class="note-link" data-note-title="$1">$1</a>');
+
+    html += '<p>' + processed + '</p>';
+  }
+
+  if (inList) html += '</ul>';
+
+  return html;
 }
