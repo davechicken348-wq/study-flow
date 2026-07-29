@@ -784,8 +784,8 @@ const app = {
                 <span class="muted text-sm">${formatDate(n.updatedAt || n.createdAt)}</span>
               </div>
               <div class="flex justify-end gap-xs mt-sm note-card-actions">
-                <button class="btn btn-ghost btn-sm" data-action="edit-note" data-id="${n.id}" aria-label="Edit">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
+                <button class="btn btn-ghost btn-sm" data-action="preview-note" data-id="${n.id}" aria-label="Preview">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                 </button>
                 <button class="btn btn-danger btn-sm" data-action="delete-note" data-id="${n.id}" aria-label="Delete">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
@@ -821,8 +821,8 @@ const app = {
               <span class="muted text-sm">${formatDate(n.updatedAt || n.createdAt)}</span>
             </div>
             <div class="flex justify-end gap-xs mt-sm note-card-actions">
-              <button class="btn btn-ghost btn-sm" data-action="edit-note" data-id="${n.id}" aria-label="Edit">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
+              <button class="btn btn-ghost btn-sm" data-action="preview-note" data-id="${n.id}" aria-label="Preview">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               </button>
               <button class="btn btn-danger btn-sm" data-action="delete-note" data-id="${n.id}" aria-label="Delete">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
@@ -832,15 +832,15 @@ const app = {
         `;
       }).join('');
 
-      grid.querySelectorAll('[data-action="edit-note"]').forEach((b) => {
-        b.addEventListener('click', () => this.showNoteForm(notes.find((n) => n.id === b.dataset.id)));
-      });
       grid.querySelectorAll('[data-action="delete-note"]').forEach((b) => {
         b.addEventListener('click', () => this.deleteNote(b.dataset.id));
       });
+      grid.querySelectorAll('[data-action="preview-note"]').forEach((b) => {
+        b.addEventListener('click', () => this.showNotePreview(b.dataset.id));
+      });
       grid.querySelectorAll('.note-card').forEach((card) => {
         card.addEventListener('click', (e) => {
-          if (e.target.closest('[data-action="edit-note"]') || e.target.closest('[data-action="delete-note"]')) return;
+          if (e.target.closest('[data-action="delete-note"]') || e.target.closest('[data-action="preview-note"]')) return;
           history.pushState(null, '', `#note/${card.dataset.noteId}`);
           this.handleRoute();
         });
@@ -851,19 +851,47 @@ const app = {
     filter.addEventListener('change', applyFilter);
 
     document.getElementById('addNoteBtn')?.addEventListener('click', () => this.showNoteForm());
-    el.querySelectorAll('[data-action="edit-note"]').forEach((b) => {
-      b.addEventListener('click', () => this.showNoteForm(notes.find((n) => n.id === b.dataset.id)));
-    });
     el.querySelectorAll('[data-action="delete-note"]').forEach((b) => {
       b.addEventListener('click', () => this.deleteNote(b.dataset.id));
     });
+    el.querySelectorAll('[data-action="preview-note"]').forEach((b) => {
+      b.addEventListener('click', () => this.showNotePreview(b.dataset.id));
+    });
     el.querySelectorAll('.note-card').forEach((card) => {
       card.addEventListener('click', (e) => {
-        if (e.target.closest('[data-action="edit-note"]') || e.target.closest('[data-action="delete-note"]')) return;
+        if (e.target.closest('[data-action="delete-note"]') || e.target.closest('[data-action="preview-note"]')) return;
         history.pushState(null, '', `#note/${card.dataset.noteId}`);
         this.handleRoute();
       });
     });
+  },
+
+  async showNotePreview(noteId) {
+    const notes = await Storage.getAllNotes();
+    const subjects = await Storage.getAllSubjects();
+    const note = notes.find(n => n.id === noteId);
+    if (!note) return;
+
+    const subj = subjects.find(s => s.id === note.subjectId);
+    this.openModal(`
+      <div class="modal-overlay">
+        <div class="modal" style="max-width:640px">
+          <div class="modal-header">
+            <h2>${escapeHtml(note.title)}</h2>
+            <button class="btn btn-ghost btn-sm" id="closePreviewModal">Close</button>
+          </div>
+          <div class="note-preview-full">
+            <div class="flex gap-sm mb">
+              <span class="badge">${subj ? escapeHtml(subj.name) : 'No subject'}</span>
+              <span class="muted text-sm">${formatDate(note.updatedAt || note.createdAt)}</span>
+            </div>
+            <div class="note-preview-content">${parseMarkdown(note.content || '')}</div>
+          </div>
+        </div>
+      </div>
+    `);
+
+    document.getElementById('closePreviewModal')?.addEventListener('click', () => this.closeModals());
   },
 
   async showNoteForm(note) {
@@ -888,10 +916,7 @@ const app = {
                 ${subjects.map((s) => `<option value="${s.id}" ${data.subjectId === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
               </select>
             </div>
-            <div class="form-group">
-              <label>Content</label>
-              <textarea id="noteContent" rows="5">${data.content || ''}</textarea>
-            </div>
+            <p class="subtle" style="margin-top:8px">Tap the note to open the editor and write content.</p>
             <div class="flex justify-end gap mt">
               <button type="button" class="btn btn-ghost" id="cancelModal">Cancel</button>
               <button type="submit" class="btn btn-primary">Save</button>
@@ -907,7 +932,7 @@ const app = {
       const id = document.getElementById('noteId').value;
       const title = document.getElementById('noteTitle').value.trim();
       const subjectId = document.getElementById('noteSubject').value || null;
-      const content = document.getElementById('noteContent').value.trim();
+      const content = note?.content || '';
 
       if (!title) return this.toast('Title is required', 'error');
       const existing = note ? await Storage.getNote(id) : null;
@@ -953,6 +978,9 @@ const app = {
             Back
           </button>
           <div class="flex gap-xs">
+            <button class="btn btn-ghost btn-sm" id="noteToggleViewBtn" aria-label="Toggle preview">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
             <button class="btn btn-danger btn-sm" id="noteDeleteBtn" aria-label="Delete note">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
             </button>
@@ -1047,6 +1075,16 @@ const app = {
       this.toast('Note deleted', 'success');
       history.pushState(null, '', '#notes');
       this.handleRoute();
+    });
+
+    const noteViewEl = document.querySelector('.note-view');
+    const toggleViewBtn = document.getElementById('noteToggleViewBtn');
+    const eyeIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const editIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>';
+    toggleViewBtn?.addEventListener('click', () => {
+      const isPreviewOnly = noteViewEl.classList.toggle('preview-only');
+      toggleViewBtn.innerHTML = isPreviewOnly ? editIcon : eyeIcon;
+      toggleViewBtn.setAttribute('aria-label', isPreviewOnly ? 'Edit note' : 'Preview only');
     });
 
     const titleInput = document.getElementById('noteTitleInput');

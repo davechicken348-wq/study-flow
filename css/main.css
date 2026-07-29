@@ -668,6 +668,15 @@ select { cursor: pointer; }
   gap: 14px;
   margin-bottom: 20px;
 }
+.note-view.preview-only .note-editor-wrap {
+  grid-template-columns: 1fr;
+}
+.note-view.preview-only .note-editor {
+  display: none;
+}
+.note-view.preview-only .note-preview {
+  max-height: none;
+}
 .note-editor, .note-preview {
   min-height: 320px;
 }
@@ -753,6 +762,16 @@ select { cursor: pointer; }
   margin-top: 8px;
 }
 .note-view-header .btn { padding: 7px; min-width: 36px; justify-content: center; }
+
+/* ── Note preview modal ── */
+.note-preview-full { padding: 4px 0; }
+.note-preview-content { line-height: 1.7; }
+.note-preview-content h2 { font-size: 1.15rem; font-weight: 600; margin-bottom: 8px; }
+.note-preview-content h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 6px; }
+.note-preview-content h4 { font-size: 0.95rem; font-weight: 600; margin-bottom: 4px; }
+.note-preview-content p { margin-bottom: 10px; }
+.note-preview-content ul { margin: 0 0 10px 20px; }
+.note-preview-content li { margin-bottom: 4px; }
 
 /* ── Voice memo ── */
 .note-voice-memo-header {
