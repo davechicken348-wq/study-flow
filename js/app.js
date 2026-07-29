@@ -946,8 +946,9 @@ const app = {
        });
      }
 
-     document.getElementById('closePreviewModal')?.addEventListener('click', () => this.closeModals());
-   },
+      document.getElementById('closePreviewModal')?.addEventListener('click', () => this.closeModals());
+      this.renderMathInPreview();
+    },
 
   async showNoteForm(note) {
     const subjects = await Storage.getAllSubjects();
@@ -1122,6 +1123,8 @@ const app = {
       </div>
     `;
 
+    this.renderMathInPreview();
+
     document.getElementById('noteBackBtn')?.addEventListener('click', () => {
       history.pushState(null, '', '#notes');
       this.handleRoute();
@@ -1182,8 +1185,9 @@ const app = {
       previewScroll.innerHTML = parseMarkdown(content, currentQuestions);
       const maxScroll = previewScroll.scrollHeight - previewScroll.clientHeight;
       previewScroll.scrollTop = prevScroll > maxScroll ? Math.max(0, maxScroll) : prevScroll;
-      wordCount.textContent = content.split(/\s+/).filter(Boolean).length + ' words';
-      attachLinkHandlers();
+       wordCount.textContent = content.split(/\s+/).filter(Boolean).length + ' words';
+       attachLinkHandlers();
+       this.renderMathInPreview();
 
       const title = titleInput.value.trim();
       const subjectId = document.getElementById('noteSubjectSelect').value || null;
@@ -1560,6 +1564,25 @@ const app = {
       item.addEventListener('click', () => {
         history.pushState(null, '', `#note/${item.dataset.noteId}`);
         this.handleRoute();
+      });
+    });
+  },
+
+  renderMathInPreview() {
+    const targets = [
+      document.getElementById('notePreviewScroll'),
+      document.getElementById('previewModalContent'),
+    ].filter(Boolean);
+    if (typeof katex === 'undefined') return;
+    targets.forEach(container => {
+      container.querySelectorAll('.katex-math').forEach(el => {
+        if (el.dataset.katexRendered) return;
+        try {
+          katex.render(el.textContent, el, { throwOnError: false, displayMode: el.tagName === 'DIV' });
+          el.dataset.katexRendered = '1';
+        } catch (e) {
+          // leave raw LaTeX if KaTeX fails
+        }
       });
     });
   },

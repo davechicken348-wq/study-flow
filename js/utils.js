@@ -141,6 +141,8 @@ export function parseMarkdown(text, questions = []) {
     }
 
     let processed = escapeHtml(line);
+    processed = processed.replace(/\$\$(.+?)\$\$/g, '<div class="katex-math">$1</div>');
+    processed = processed.replace(/\$([^$]+)\$/g, '<span class="katex-math">$1</span>');
     processed = processed.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
     processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     processed = processed.replace(/\*(.*?)\*/g, '<em>$1</em>');
