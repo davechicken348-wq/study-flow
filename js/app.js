@@ -1,6 +1,50 @@
 import { generateId, getToday, formatDate, formatTime, formatDuration, formatDurationClock, getWeekDates, getStartOfWeek, escapeHtml, debounce, parseMarkdown } from './utils.js';
 import Storage from './storage.js';
 
+function attachQuestionTooltip({ container, tooltipEl, questions }) {
+  if (document.body.contains(tooltipEl)) {
+    tooltipEl.remove();
+  }
+  document.body.appendChild(tooltipEl);
+
+  const showTooltip = (marker) => {
+    const qid = marker.dataset.questionId;
+    const q = questions.find(x => x.id === qid);
+    if (!q) return;
+    const answerText = q.answer ? escapeHtml(q.answer) : '<em>No answer yet</em>';
+    tooltipEl.innerHTML = `<strong>Q:</strong> ${escapeHtml(q.text)}<br><strong>A:</strong> ${answerText}`;
+    tooltipEl.classList.toggle('resolved', !!q.resolved);
+    tooltipEl.style.display = 'block';
+    const rect = marker.getBoundingClientRect();
+    const tooltipRect = tooltipEl.getBoundingClientRect();
+    let top = rect.top - tooltipRect.height - 8;
+    let left = rect.left + rect.width / 2 - tooltipRect.width / 2;
+    if (top < 8) top = rect.bottom + 8;
+    if (left < 8) left = 8;
+    if (left + tooltipRect.width > window.innerWidth - 8) left = window.innerWidth - tooltipRect.width - 8;
+    tooltipEl.style.top = top + 'px';
+    tooltipEl.style.left = left + 'px';
+  };
+
+  const hideTooltip = () => {
+    tooltipEl.classList.remove('resolved');
+    tooltipEl.style.display = 'none';
+  };
+
+  container.addEventListener('mouseover', (e) => {
+    const marker = e.target.closest('.question-marker');
+    if (marker) showTooltip(marker);
+  });
+
+  container.addEventListener('mouseout', (e) => {
+    const marker = e.target.closest('.question-marker');
+    if (marker) hideTooltip();
+  });
+
+  container.addEventListener('scroll', hideTooltip);
+  return { showTooltip, hideTooltip };
+}
+
 const PRESET_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ef4444', '#64748b'];
 
 const app = {
@@ -866,33 +910,44 @@ const app = {
     });
   },
 
-  async showNotePreview(noteId) {
-    const notes = await Storage.getAllNotes();
-    const subjects = await Storage.getAllSubjects();
-    const note = notes.find(n => n.id === noteId);
-    if (!note) return;
+   async showNotePreview(noteId) {
+     const notes = await Storage.getAllNotes();
+     const subjects = await Storage.getAllSubjects();
+     const note = notes.find(n => n.id === noteId);
+     if (!note) return;
 
-    const subj = subjects.find(s => s.id === note.subjectId);
-    this.openModal(`
-      <div class="modal-overlay">
-        <div class="modal" style="max-width:640px">
-          <div class="modal-header">
-            <h2>${escapeHtml(note.title)}</h2>
-            <button class="btn btn-ghost btn-sm" id="closePreviewModal">Close</button>
-          </div>
-          <div class="note-preview-full">
-            <div class="flex gap-sm mb">
-              <span class="badge">${subj ? escapeHtml(subj.name) : 'No subject'}</span>
-              <span class="muted text-sm">${formatDate(note.updatedAt || note.createdAt)}</span>
-            </div>
-            <div class="note-preview-content">${parseMarkdown(note.content || '')}</div>
-          </div>
-        </div>
-      </div>
-    `);
+     const subj = subjects.find(s => s.id === note.subjectId);
+     this.openModal(`
+       <div class="modal-overlay">
+         <div class="modal" style="max-width:640px">
+           <div class="modal-header">
+             <h2>${escapeHtml(note.title)}</h2>
+             <button class="btn btn-ghost btn-sm" id="closePreviewModal">Close</button>
+           </div>
+           <div class="note-preview-full">
+             <div class="flex gap-sm mb">
+               <span class="badge">${subj ? escapeHtml(subj.name) : 'No subject'}</span>
+               <span class="muted text-sm">${formatDate(note.updatedAt || note.createdAt)}</span>
+             </div>
+             <div class="note-preview-content" id="previewModalContent">${parseMarkdown(note.content || '', note.questions || [])}</div>
+             <div class="preview-question-tooltip" id="previewModalTooltip" aria-hidden="true"></div>
+           </div>
+         </div>
+       </div>
+     `);
 
-    document.getElementById('closePreviewModal')?.addEventListener('click', () => this.closeModals());
-  },
+     const modalContent = document.getElementById('previewModalContent');
+     const modalTooltip = document.getElementById('previewModalTooltip');
+     if (modalContent && modalTooltip && (note.questions || []).length) {
+       attachQuestionTooltip({
+         container: modalContent,
+         tooltipEl: modalTooltip,
+         questions: note.questions || [],
+       });
+     }
+
+     document.getElementById('closePreviewModal')?.addEventListener('click', () => this.closeModals());
+   },
 
   async showNoteForm(note) {
     const subjects = await Storage.getAllSubjects();
@@ -1003,6 +1058,7 @@ const app = {
               <button class="btn btn-ghost btn-sm" id="noteMarkdownHelpBtn" style="padding:4px 10px;font-size:0.75rem">Markdown guide</button>
             </div>
             <div class="note-editor">
+              <label for="noteContentInput" class="sr-only">Note content</label>
               <textarea id="noteContentInput" placeholder="Start writing...">${escapeHtml(note.content || '')}</textarea>
             </div>
           </div>
@@ -1012,7 +1068,8 @@ const app = {
               <span class="subtle" style="font-size:0.72rem">Live</span>
             </div>
             <div class="note-preview" id="notePreview">
-              ${parseMarkdown(note.content || '')}
+              <div class="note-preview-scroll" id="notePreviewScroll">${parseMarkdown(note.content || '', note.questions || [])}</div>
+              <div class="preview-question-tooltip" id="previewQuestionTooltip" aria-hidden="true"></div>
             </div>
           </div>
         </div>
@@ -1032,6 +1089,14 @@ const app = {
             <button class="btn btn-danger btn-sm" id="noteStopRecordBtn">Stop</button>
           </div>
           <div id="noteRecordingsList"></div>
+        </div>
+
+        <div class="note-questions-section" id="noteQuestionsSection">
+          <div class="note-questions-header">
+            <h3>Questions</h3>
+            <span class="note-questions-count" id="noteQuestionsCount"></span>
+          </div>
+          <div id="questionsList"><div class="note-questions-empty">No questions yet<br><span class="note-questions-empty-sub">Type QUES in the editor to create a question</span></div></div>
         </div>
 
         <div class="note-mdf-help hidden" id="noteMarkdownHelp">
@@ -1090,10 +1155,11 @@ const app = {
     const titleInput = document.getElementById('noteTitleInput');
     const contentInput = document.getElementById('noteContentInput');
     const preview = document.getElementById('notePreview');
+    const previewScroll = document.getElementById('notePreviewScroll');
     const wordCount = document.getElementById('noteWordCount');
 
     const attachLinkHandlers = () => {
-      preview.querySelectorAll('.note-link').forEach(link => {
+      previewScroll.querySelectorAll('.note-link').forEach(link => {
         link.addEventListener('click', (e) => {
           e.preventDefault();
           const targetTitle = link.dataset.noteTitle;
@@ -1108,9 +1174,14 @@ const app = {
       });
     };
 
-    const updatePreview = debounce(async () => {
+    let currentQuestions = note.questions && note.questions.length ? [...note.questions] : [];
+
+    let updatePreview = debounce(async () => {
       const content = contentInput.value || '';
-      preview.innerHTML = parseMarkdown(content);
+      const prevScroll = previewScroll.scrollTop;
+      previewScroll.innerHTML = parseMarkdown(content, currentQuestions);
+      const maxScroll = previewScroll.scrollHeight - previewScroll.clientHeight;
+      previewScroll.scrollTop = prevScroll > maxScroll ? Math.max(0, maxScroll) : prevScroll;
       wordCount.textContent = content.split(/\s+/).filter(Boolean).length + ' words';
       attachLinkHandlers();
 
@@ -1119,7 +1190,7 @@ const app = {
       if (!title) return;
 
       const existing = await Storage.getNote(note.id);
-      const noteObj = { ...existing, id: note.id, title, subjectId, content };
+      const noteObj = { ...existing, id: note.id, title, subjectId, content, questions: currentQuestions };
       await Storage.saveNote(noteObj);
       this.renderBacklinks(noteObj, await Storage.getAllNotes());
     }, 400);
@@ -1130,6 +1201,202 @@ const app = {
 
     attachLinkHandlers();
     this.renderBacklinks(note, notes);
+
+    // ── Questions tracking ───────────────────────────────────────────────────
+    const questionsListEl = document.getElementById('questionsList');
+    const questionsCountEl = document.getElementById('noteQuestionsCount');
+
+    const saveCurrentQuestions = async () => {
+      const existing = await Storage.getNote(note.id);
+      if (!existing) return;
+      const title = titleInput.value.trim();
+      const subjectId = document.getElementById('noteSubjectSelect').value || null;
+      const noteObj = { ...existing, id: note.id, title, subjectId, content: contentInput.value, questions: currentQuestions };
+      await Storage.saveNote(noteObj);
+      note.questions = currentQuestions;
+    };
+
+    const renderQuestionsPanel = () => {
+      if (!questionsListEl) return;
+      const unresolved = currentQuestions.filter(q => !q.resolved).length;
+      if (questionsCountEl) {
+        questionsCountEl.textContent = currentQuestions.length > 0
+          ? `${currentQuestions.length} total, ${unresolved} unresolved`
+          : '';
+      }
+
+      if (currentQuestions.length === 0) {
+        questionsListEl.innerHTML = '<div class="note-questions-empty">No questions yet<br><span class="note-questions-empty-sub">Type QUES in the editor to create a question</span></div>';
+        return;
+      }
+
+      questionsListEl.innerHTML = currentQuestions.map(q => `
+        <div class="note-question-item ${q.resolved ? 'resolved' : ''}" data-question-id="${q.id}">
+          <div class="note-question-body">
+            <div class="note-question-text">${escapeHtml(q.text)}</div>
+            ${q.answer ? `<div class="note-question-answer"><strong>Answer:</strong> ${escapeHtml(q.answer)}</div>` : ''}
+            ${!q.resolved ? `<div class="note-question-add-answer" data-question-id="${q.id}">
+              <input type="text" placeholder="Add an answer...">
+              <button class="btn btn-ghost btn-sm btn-answer-save" data-id="${q.id}">Save</button>
+            </div>` : ''}
+          </div>
+          <div class="note-question-actions">
+            <button class="btn btn-ghost btn-sm btn-toggle-resolve" data-id="${q.id}">${q.resolved ? 'Reopen' : 'Resolve'}</button>
+            <button class="btn btn-danger btn-sm btn-delete-question" data-id="${q.id}">Delete</button>
+          </div>
+        </div>
+      `).join('');
+
+      questionsListEl.querySelectorAll('.btn-answer-save').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const qid = btn.dataset.id;
+          const item = questionsListEl.querySelector(`[data-question-id="${qid}"]`);
+          const input = item?.querySelector('.note-question-add-answer input');
+          const text = input?.value.trim();
+          if (!text) return;
+          const q = currentQuestions.find(x => x.id === qid);
+          if (!q) return;
+          q.answer = text;
+          await saveCurrentQuestions();
+          renderQuestionsPanel();
+          this.toast('Answer saved');
+        });
+      });
+
+      questionsListEl.querySelectorAll('.note-question-add-answer input').forEach(input => {
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            const qid = input.closest('[data-question-id]')?.dataset.questionId;
+            const btn = questionsListEl.querySelector(`.btn-answer-save[data-id="${qid}"]`);
+            btn?.click();
+          }
+        });
+      });
+
+      questionsListEl.querySelectorAll('.btn-toggle-resolve').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const qid = btn.dataset.id;
+          const q = currentQuestions.find(x => x.id === qid);
+          if (!q) return;
+          q.resolved = !q.resolved;
+          await saveCurrentQuestions();
+          renderQuestionsPanel();
+          this.toast(q.resolved ? 'Question resolved' : 'Question reopened');
+        });
+      });
+
+      questionsListEl.querySelectorAll('.btn-delete-question').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Delete this question?')) return;
+          const qid = btn.dataset.id;
+          currentQuestions = currentQuestions.filter(x => x.id !== qid);
+          await saveCurrentQuestions();
+          renderQuestionsPanel();
+        });
+      });
+    };
+
+    const openQuestionPrompt = (lineNumber, lineContent) => {
+      const modalHtml = `
+        <div class="modal-overlay">
+          <div class="modal" style="max-width:520px">
+            <div class="modal-header"><h3>New question — L${lineNumber}</h3></div>
+            <form id="questionForm" class="p">
+              <div class="form-group">
+                <label>Your question</label>
+                <input type="text" id="questionTextInput" placeholder="What do you want to ask?" autofocus>
+              </div>
+              <p class="subtle" style="font-size:0.78rem;margin-top:4px">${escapeHtml(lineContent)}</p>
+              <div class="flex justify-end gap mt">
+                <button type="button" class="btn btn-ghost" id="cancelQuestionBtn">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save question</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+      this.openModal(modalHtml);
+
+      const form = document.getElementById('questionForm');
+      const input = document.getElementById('questionTextInput');
+      input?.focus();
+
+      form?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const text = input.value.trim();
+        if (!text) return;
+
+        const question = {
+          id: 'ques_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+          text,
+          answer: null,
+          resolved: false,
+          createdAt: new Date().toISOString(),
+        };
+        currentQuestions.push(question);
+
+        const content = contentInput.value || '';
+        const lines = content.split('\n');
+        const targetLine = Math.max(0, Math.min(lineNumber - 1, lines.length - 1));
+        lines[targetLine] = lines[targetLine].replace(/\bQUES\b/gi, '').trimEnd();
+        lines.splice(targetLine + 1, 0, `[Q:${question.id}]`);
+        contentInput.value = lines.join('\n');
+        await saveCurrentQuestions();
+        updatePreview();
+        this.closeModals();
+        this.toast('Question attached', 'success');
+      });
+
+      document.getElementById('cancelQuestionBtn')?.addEventListener('click', () => {
+        this.closeModals();
+      });
+    };
+
+    const detectAndPromptQuestions = debounce(async () => {
+      if (!contentInput) return;
+      const content = contentInput.value || '';
+      const lines = content.split('\n');
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const lineNumber = i + 1;
+        if (/\bQUES\b/i.test(line)) {
+          const cleaned = line.replace(/\bQUES\b/gi, '').trim();
+          openQuestionPrompt(lineNumber, cleaned || '(empty line)');
+          return;
+        }
+      }
+    }, 400);
+
+    contentInput?.addEventListener('input', detectAndPromptQuestions);
+
+    // ── Patch updatePreview to also sync questions ───────────────────────────
+    const updatePreview_original = updatePreview;
+    updatePreview = async () => {
+      await updatePreview_original();
+      renderQuestionsPanel();
+    };
+
+    titleInput?.removeEventListener('input', updatePreview_original);
+    contentInput?.removeEventListener('input', updatePreview_original);
+    document.getElementById('noteSubjectSelect')?.removeEventListener('change', updatePreview_original);
+    titleInput?.addEventListener('input', updatePreview);
+    contentInput?.addEventListener('input', updatePreview);
+    document.getElementById('noteSubjectSelect')?.addEventListener('change', updatePreview);
+
+    // Initial render
+    renderQuestionsPanel();
+
+    // ── Preview tooltip for question markers ─────────────────────────────────
+    const previewTooltip = document.getElementById('previewQuestionTooltip');
+    if (previewScroll && previewTooltip) {
+      attachQuestionTooltip({
+        container: previewScroll,
+        tooltipEl: previewTooltip,
+        questions: currentQuestions,
+      });
+    }
 
     const recordBtn = document.getElementById('noteRecordBtn');
     const stopBtn = document.getElementById('noteStopRecordBtn');

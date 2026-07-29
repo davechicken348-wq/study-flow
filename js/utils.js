@@ -74,8 +74,9 @@ export function debounce(fn, ms) {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
 
-export function parseMarkdown(text) {
+export function parseMarkdown(text, questions = []) {
   if (!text) return '';
+  const questionMap = new Map(questions.map(q => [q.id, q]));
   const lines = text.split('\n');
   let html = '';
   let inList = false;
@@ -122,6 +123,20 @@ export function parseMarkdown(text) {
 
     if (line.trim() === '') {
       html += '<br>';
+      continue;
+    }
+
+    const questionMatch = line.match(/^\[Q:(.+?)\]$/);
+    if (questionMatch) {
+      const qid = questionMatch[1];
+      const q = questionMap.get(qid);
+      if (q) {
+        const answerText = q.answer ? escapeHtml(q.answer) : 'No answer yet';
+        const resolvedClass = q.resolved ? ' resolved' : '';
+        html += `<span class="question-marker${resolvedClass}" data-question-id="${escapeHtml(qid)}">?<span class="question-tooltip"><strong>Q:</strong> ${escapeHtml(q.text)}<br><strong>A:</strong> ${answerText}</span></span>`;
+      } else {
+        html += '<span class="question-marker">?</span>';
+      }
       continue;
     }
 
