@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { generateId, getToday, formatDate, formatTime, formatDuration, formatDurationClock, getWeekDates, getStartOfWeek, escapeHtml, debounce, parseMarkdown } from './utils.js';
 import Storage from './storage.js';
 
@@ -205,21 +206,16 @@ const app = {
 
     if (subjects.length === 0 && sessions.length === 0) {
       el.innerHTML = `
-        <div class="dash-hero card">
+        <div class="dash-hero card dash-hero-onboard">
           <div class="dash-hero-text">
+            <span class="dash-hero-badge">Get started</span>
             <h1>${escapeHtml(greeting)} 👋</h1>
             <p class="muted">Welcome to StudyFlow. Track sessions, plan your week, and hit your goals.</p>
             <button class="btn btn-primary mt" id="onboardingAddSubjectBtn">Add your first subject</button>
           </div>
-          <svg class="dash-hero-illo" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="60" cy="60" r="54" fill="var(--accent-bg)"/>
-            <rect x="30" y="44" width="60" height="42" rx="7" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/>
-            <rect x="38" y="54" width="22" height="4" rx="2" fill="var(--accent)" opacity="0.7"/>
-            <rect x="38" y="62" width="44" height="3" rx="1.5" fill="var(--accent)" opacity="0.3"/>
-            <rect x="38" y="69" width="32" height="3" rx="1.5" fill="var(--accent)" opacity="0.3"/>
-            <circle cx="85" cy="38" r="12" fill="var(--accent)"/>
-            <path d="M85 32v6l4 2" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
+          <div class="dash-hero-illo-wrap">
+            <img class="dash-hero-illo" src="assets/illustrations/Start-Up-Team--Streamline-Bangalore.png" alt="">
+          </div>
         </div>
       `;
       document.getElementById('onboardingAddSubjectBtn').addEventListener('click', () => this.showSubjectForm());
@@ -232,13 +228,9 @@ const app = {
           <h1>${escapeHtml(greeting)} 👋</h1>
           <p class="muted">Ready to focus? Here's your overview.</p>
         </div>
-        <svg class="dash-hero-illo" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="60" cy="60" r="54" fill="var(--accent-bg)"/>
-          <rect x="28" y="80" width="14" height="24" rx="3" fill="var(--accent)" opacity="0.3"/>
-          <rect x="48" y="64" width="14" height="40" rx="3" fill="var(--accent)" opacity="0.5"/>
-          <rect x="68" y="50" width="14" height="54" rx="3" fill="var(--accent)" opacity="0.7"/>
-          <rect x="88" y="38" width="14" height="66" rx="3" fill="var(--accent)"/>
-        </svg>
+        <div class="dash-hero-illo-wrap">
+          <img class="dash-hero-illo" src="assets/illustrations/Start-Up-Team--Streamline-Bangalore.png" alt="">
+        </div>
       </div>
       <div class="grid grid-4 gap mt">
         <div class="card">
@@ -259,7 +251,8 @@ const app = {
         </div>
       </div>
 
-      <div class="card mt-lg">
+      <div class="dash-two-col">
+      <div class="card">
         <div class="card-header flex justify-between items-center">
           <h2>Today's Plan</h2>
           <button class="btn btn-primary btn-sm" id="dashAddPlanBtn" aria-label="Add session">
@@ -268,15 +261,7 @@ const app = {
         </div>
         ${todaySessions.filter((s) => s.source === 'planner').length === 0 ? `
           <div class="empty-state">
-            <svg class="empty-illo" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="60" cy="60" r="54" fill="var(--accent-bg)"/>
-              <rect x="34" y="38" width="52" height="44" rx="6" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/>
-              <rect x="42" y="50" width="20" height="3" rx="1.5" fill="var(--accent)" opacity="0.5"/>
-              <rect x="42" y="57" width="36" height="3" rx="1.5" fill="var(--accent)" opacity="0.3"/>
-              <rect x="42" y="64" width="28" height="3" rx="1.5" fill="var(--accent)" opacity="0.3"/>
-              <circle cx="82" cy="78" r="14" fill="var(--accent)"/>
-              <path d="M76 78h12M82 72v12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
-            </svg>
+            <img class="empty-illo" src="assets/illustrations/Robot-Learning-From-Human--Streamline-Bangalore.png" alt="">
             <h3>No planned sessions today</h3>
             <p>Plan your study sessions in the Planner to see them here.</p>
           </div>` : `
@@ -312,7 +297,7 @@ const app = {
         `}
       </div>
 
-      <div class="card mt-lg">
+      <div class="card">
         <div class="card-header flex justify-between items-center">
           <h2>Today's Sessions</h2>
           <button class="btn btn-primary btn-sm" id="dashAddSubjectBtn" aria-label="Add subject">
@@ -321,15 +306,7 @@ const app = {
         </div>
         ${todaySessions.filter((s) => s.source === 'timer').length === 0 ? `
           <div class="empty-state">
-            <svg class="empty-illo" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="60" cy="60" r="54" fill="var(--accent-bg)"/>
-              <rect x="34" y="38" width="52" height="44" rx="6" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/>
-              <rect x="42" y="50" width="20" height="3" rx="1.5" fill="var(--accent)" opacity="0.5"/>
-              <rect x="42" y="57" width="36" height="3" rx="1.5" fill="var(--accent)" opacity="0.3"/>
-              <rect x="42" y="64" width="28" height="3" rx="1.5" fill="var(--accent)" opacity="0.3"/>
-              <circle cx="82" cy="78" r="14" fill="var(--accent)"/>
-              <path d="M76 78h12M82 72v12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
-            </svg>
+            <img class="empty-illo" src="assets/illustrations/Development-Code-Learning-01--Streamline-Bangalore.png" alt="">
             <h3>No timer sessions yet today</h3>
             <p>Use the Timer to start tracking your study time.</p>
           </div>` : `
@@ -349,6 +326,7 @@ const app = {
             }).join('')}
           </div>
         `}
+      </div>
       </div>
 
       ${dailyGoal ? `
@@ -371,50 +349,43 @@ const app = {
     const el = document.getElementById('pageContent');
 
     el.innerHTML = `
-      <div class="page-header flex justify-between items-center">
+      <div class="page-header flex justify-between items-center page-header-inline">
         <h1>Subjects</h1>
         <button class="btn btn-primary btn-sm" id="addSubjectBtn" aria-label="Add subject">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add subject
         </button>
       </div>
       ${subjects.length === 0 ? `
-        <div class="empty-state card mt">
-          <svg class="empty-illo" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="60" cy="60" r="54" fill="var(--accent-bg)"/>
-            <rect x="28" y="35" width="38" height="50" rx="5" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/>
-            <rect x="54" y="42" width="38" height="50" rx="5" fill="var(--surface)" stroke="var(--accent)" stroke-width="2" opacity="0.6"/>
-            <rect x="34" y="48" width="20" height="3" rx="1.5" fill="var(--accent)" opacity="0.6"/>
-            <rect x="34" y="55" width="26" height="3" rx="1.5" fill="var(--accent)" opacity="0.3"/>
-            <rect x="34" y="62" width="16" height="3" rx="1.5" fill="var(--accent)" opacity="0.3"/>
-            <circle cx="84" cy="80" r="14" fill="var(--accent)"/>
-            <path d="M78 80h12M84 74v12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
-          </svg>
+        <div class="empty-state card mt empty-state-lg">
+          <img class="empty-illo" src="assets/illustrations/Education-Online-Learning-02--Streamline-Bangalore.png" alt="">
           <h3>No subjects yet</h3>
           <p>Add your first subject to start organising your study sessions.</p>
         </div>` : `
-        <div class="grid grid-3 gap mt">
+        <div class="grid grid-2 gap mt">
           ${subjects.map((s) => {
             const count = sessions.filter((x) => x.subjectId === s.id).length;
             const total = sessions.filter((x) => x.subjectId === s.id).reduce((sum, x) => sum + (x.duration || 0), 0);
             return `
-              <div class="card">
-                <div class="subject-stripe" style="background: ${escapeHtml(s.color)}"></div>
-                <div>
-                  <h3 class="truncate">${escapeHtml(s.name)}</h3>
-                  <p class="muted text-sm mb-sm">${escapeHtml(s.description || 'No description')}</p>
-                  <div class="flex justify-between items-center">
-                    <span class="muted text-sm">${count} sessions · ${formatDuration(total)}</span>
-                    <div class="flex gap-xs">
-                      <button class="btn btn-ghost btn-sm" data-action="edit-subject" data-id="${s.id}" aria-label="Edit">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
-                      </button>
-                      <button class="btn btn-danger btn-sm" data-action="delete-subject" data-id="${s.id}" aria-label="Delete">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                      </button>
-                    </div>
-                  </div>
-                </div>
+          <div class="card subject-card" style="--subj: ${escapeHtml(s.color)}">
+            <div class="subject-card-top">
+              <div class="subject-avatar">${escapeHtml((s.name || '?').charAt(0).toUpperCase())}</div>
+              <div class="flex gap-xs">
+                <button class="btn btn-ghost btn-sm" data-action="edit-subject" data-id="${s.id}" aria-label="Edit">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
+                </button>
+                <button class="btn btn-danger btn-sm" data-action="delete-subject" data-id="${s.id}" aria-label="Delete">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                </button>
               </div>
+            </div>
+            <h3 class="truncate">${escapeHtml(s.name)}</h3>
+            <p class="muted text-sm subject-desc">${escapeHtml(s.description || 'No description')}</p>
+            <div class="subject-meta">
+              <span class="subject-chip">${count} sessions</span>
+              <span class="subject-chip">${formatDuration(total)}</span>
+            </div>
+          </div>
             `;
           }).join('')}
         </div>
@@ -782,6 +753,32 @@ const app = {
     }
   },
 
+  noteCardHTML(n, subjects) {
+    const subj = subjects.find((x) => x.id === n.subjectId);
+    const subjColor = subj && subj.color ? subj.color : 'var(--accent)';
+    const initial = escapeHtml((n.title || '?').charAt(0).toUpperCase());
+    return `
+      <div class="card note-card" data-note-id="${n.id}" style="--subj: ${subjColor}">
+        <div class="note-card-head">
+          <div class="note-card-icon">${initial}</div>
+          <span class="badge note-subject">${subj ? escapeHtml(subj.name) : 'No subject'}</span>
+        </div>
+        <h3 class="truncate">${escapeHtml(n.title)}</h3>
+        <p class="note-content-preview muted">${escapeHtml(n.content || '')}</p>
+        <div class="note-card-foot">
+          <span class="muted text-sm">${formatDate(n.updatedAt || n.createdAt)}</span>
+          <div class="flex gap-xs note-card-actions">
+            <button class="btn btn-ghost btn-sm" data-action="preview-note" data-id="${n.id}" aria-label="Preview">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+            <button class="btn btn-danger btn-sm" data-action="delete-note" data-id="${n.id}" aria-label="Delete">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>`;
+  },
+
   async renderNotes() {
     const [notes, subjects] = await Promise.all([
       Storage.getAllNotes(), Storage.getAllSubjects(),
@@ -789,10 +786,11 @@ const app = {
     const el = document.getElementById('pageContent');
 
     el.innerHTML = `
-      <div class="page-header flex justify-between items-center">
+      <div class="page-header flex justify-between items-center page-header-inline">
         <h1>Notes</h1>
         <button class="btn btn-primary btn-sm" id="addNoteBtn" aria-label="Add note">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add note
         </button>
       </div>
       <div class="flex gap mt mb notes-toolbar">
@@ -802,42 +800,13 @@ const app = {
           ${subjects.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}
         </select>
       </div>
-      <div class="grid grid-3 gap" id="notesGrid">
+      <div class="grid grid-2 gap" id="notesGrid">
         ${notes.length === 0 ? `
-          <div class="empty-state" style="grid-column:1/-1">
-            <svg class="empty-illo" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="60" cy="60" r="54" fill="var(--accent-bg)"/>
-              <rect x="32" y="30" width="56" height="62" rx="6" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/>
-              <line x1="32" y1="42" x2="88" y2="42" stroke="var(--accent)" stroke-width="1.5" opacity="0.4"/>
-              <rect x="40" y="52" width="32" height="3" rx="1.5" fill="var(--accent)" opacity="0.5"/>
-              <rect x="40" y="60" width="40" height="3" rx="1.5" fill="var(--accent)" opacity="0.3"/>
-              <rect x="40" y="68" width="24" height="3" rx="1.5" fill="var(--accent)" opacity="0.3"/>
-              <path d="M72 84 L80 76 L86 82 L78 90 Z" fill="var(--accent)" opacity="0.7"/>
-              <path d="M80 76 L84 72 L90 78 L86 82 Z" fill="var(--accent)"/>
-            </svg>
+          <div class="empty-state empty-state-lg" style="grid-column:1/-1">
+            <img class="empty-illo" src="assets/illustrations/Communication-Contact-Post-It-To-Do-Notes-01--Streamline-Bangalore.png" alt="">
             <h3>No notes yet</h3>
             <p>Capture ideas, summaries, and key points from your study sessions.</p>
-          </div>` : notes.map((n) => {
-          const subj = subjects.find((x) => x.id === n.subjectId);
-          return `
-            <div class="card note-card" data-note-id="${n.id}">
-              <h3>${escapeHtml(n.title)}</h3>
-              <p class="note-content-preview muted">${escapeHtml(n.content || '')}</p>
-              <div class="flex justify-between items-center mt">
-                <span class="badge">${subj ? escapeHtml(subj.name) : 'No subject'}</span>
-                <span class="muted text-sm">${formatDate(n.updatedAt || n.createdAt)}</span>
-              </div>
-              <div class="flex justify-end gap-xs mt-sm note-card-actions">
-                <button class="btn btn-ghost btn-sm" data-action="preview-note" data-id="${n.id}" aria-label="Preview">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                </button>
-                <button class="btn btn-danger btn-sm" data-action="delete-note" data-id="${n.id}" aria-label="Delete">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                </button>
-              </div>
-            </div>
-          `;
-        }).join('')}
+          </div>` : notes.map((n) => this.noteCardHTML(n, subjects)).join('')}
       </div>
     `;
 
@@ -854,27 +823,7 @@ const app = {
       });
 
       const grid = document.getElementById('notesGrid');
-      grid.innerHTML = filtered.length === 0 ? '<p class="muted">No notes match your search.</p>' : filtered.map((n) => {
-        const subj = subjects.find((x) => x.id === n.subjectId);
-        return `
-          <div class="card note-card" data-note-id="${n.id}">
-            <h3>${escapeHtml(n.title)}</h3>
-            <p class="note-content-preview muted">${escapeHtml(n.content || '')}</p>
-            <div class="flex justify-between items-center mt">
-              <span class="badge">${subj ? escapeHtml(subj.name) : 'No subject'}</span>
-              <span class="muted text-sm">${formatDate(n.updatedAt || n.createdAt)}</span>
-            </div>
-            <div class="flex justify-end gap-xs mt-sm note-card-actions">
-              <button class="btn btn-ghost btn-sm" data-action="preview-note" data-id="${n.id}" aria-label="Preview">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
-              <button class="btn btn-danger btn-sm" data-action="delete-note" data-id="${n.id}" aria-label="Delete">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-              </button>
-            </div>
-          </div>
-        `;
-      }).join('');
+      grid.innerHTML = filtered.length === 0 ? '<p class="muted">No notes match your search.</p>' : filtered.map((n) => this.noteCardHTML(n, subjects)).join('');
 
       grid.querySelectorAll('[data-action="delete-note"]').forEach((b) => {
         b.addEventListener('click', () => this.deleteNote(b.dataset.id));
@@ -1069,7 +1018,14 @@ const app = {
               <span class="subtle" style="font-size:0.72rem">Live</span>
             </div>
             <div class="note-preview" id="notePreview">
+              ${note.content && note.content.trim() ? `
               <div class="note-preview-scroll" id="notePreviewScroll">${parseMarkdown(note.content || '', note.questions || [])}</div>
+              ` : `
+              <div class="note-editor-empty" id="notePreviewScroll">
+                <img class="note-editor-empty-illo" src="assets/illustrations/Documents-4--Streamline-Bangalore.png" alt="">
+                <p>Nothing here yet — start typing in the editor to bring your note to life.</p>
+              </div>
+              `}
               <div class="preview-question-tooltip" id="previewQuestionTooltip" aria-hidden="true"></div>
             </div>
           </div>
@@ -1182,7 +1138,15 @@ const app = {
     let updatePreview = debounce(async () => {
       const content = contentInput.value || '';
       const prevScroll = previewScroll.scrollTop;
-      previewScroll.innerHTML = parseMarkdown(content, currentQuestions);
+      if (content.trim()) {
+        previewScroll.className = 'note-preview-scroll';
+        previewScroll.innerHTML = parseMarkdown(content, currentQuestions);
+      } else {
+        previewScroll.className = 'note-editor-empty';
+        previewScroll.innerHTML = `
+          <img class="note-editor-empty-illo" src="assets/illustrations/Documents-4--Streamline-Bangalore.png" alt="">
+          <p>Nothing here yet — start typing in the editor to bring your note to life.</p>`;
+      }
       const maxScroll = previewScroll.scrollHeight - previewScroll.clientHeight;
       previewScroll.scrollTop = prevScroll > maxScroll ? Math.max(0, maxScroll) : prevScroll;
        wordCount.textContent = content.split(/\s+/).filter(Boolean).length + ' words';
@@ -1594,15 +1558,8 @@ const app = {
     if (sessions.length === 0) {
       el.innerHTML = `
         <div class="page-header"><h1>Statistics</h1></div>
-        <div class="empty-state card">
-          <svg class="empty-illo" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="60" cy="60" r="54" fill="var(--accent-bg)"/>
-            <rect x="28" y="80" width="14" height="24" rx="3" fill="var(--accent)" opacity="0.3"/>
-            <rect x="48" y="64" width="14" height="40" rx="3" fill="var(--accent)" opacity="0.5"/>
-            <rect x="68" y="50" width="14" height="54" rx="3" fill="var(--accent)" opacity="0.7"/>
-            <rect x="88" y="38" width="14" height="66" rx="3" fill="var(--accent)"/>
-            <path d="M28 80 Q42 60 60 50 Q78 40 102 30" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 3" fill="none" opacity="0.5"/>
-          </svg>
+        <div class="empty-state card empty-state-lg">
+          <img class="empty-illo" src="assets/illustrations/Business-Charts-Pie-And-Bars--Streamline-Bangalore.png" alt="">
           <h3>No data yet</h3>
           <p>Complete your first study session to start seeing statistics here.</p>
         </div>

@@ -1,4 +1,4 @@
-const CACHE = 'studyflow-v2';
+const CACHE = 'studyflow-v3';
 const PRECACHE = [
   './',
   './index.html',
@@ -8,6 +8,13 @@ const PRECACHE = [
   './js/app.js',
   './manifest.json',
   './assets/vendor/chart.umd.min.js',
+  './assets/illustrations/Bills-Payment-01--Streamline-Bangalore.png',
+  './assets/illustrations/Business-Business-Graph-Negative-01--Streamline-Bangalore.png',
+  './assets/illustrations/Business-Charts-Pie-And-Bars--Streamline-Bangalore.png',
+  './assets/illustrations/Communication-Contact-Post-It-To-Do-Notes-01--Streamline-Bangalore.png',
+  './assets/illustrations/Development-Code-Learning-01--Streamline-Bangalore.png',
+  './assets/illustrations/Education-Online-Learning-02--Streamline-Bangalore.png',
+  './assets/illustrations/Robot-Learning-From-Human--Streamline-Bangalore.png',
 ];
 
 self.addEventListener('install', (e) => {

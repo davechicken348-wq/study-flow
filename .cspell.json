@@ -1,0 +1,21 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "words": [
+    "illo",
+    "subj",
+    "Streamline",
+    "Bangalore",
+    "StudyFlow",
+    "Quicksand",
+    "Katex",
+    "jsdelivr",
+    "color-mix",
+    "line-clamp",
+    "srgb"
+  ],
+  "ignorePaths": [
+    "node_modules/**",
+    "*.min.js"
+  ]
+}
