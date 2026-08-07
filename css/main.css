@@ -1778,12 +1778,7 @@ select { cursor: pointer; }
     radial-gradient(120% 140% at 100% 100%, color-mix(in srgb, var(--accent) 10%, var(--surface)) 0%, transparent 50%),
     linear-gradient(135deg, var(--accent-bg) 0%, var(--surface) 100%);
   border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
-  box-shadow: var(--shadow-lg);
-  animation: heroIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-@keyframes heroIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
+  box-shadow: none;
 }
 .dash-hero::before,
 .dash-hero::after {
