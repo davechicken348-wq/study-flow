@@ -12,6 +12,7 @@ const ILLUSTRATIONS = [
   'Hr-Human-Resources-2--Streamline-Bangalore.png',
   'I-Have-A-Question-2--Streamline-Bangalore.png',
   'Laptop-Workspace-3--Streamline-Ux.png',
+  'No-Drafts-01--Streamline-Bangalore.png',
   'Pin-Post-It-Note--Streamline-Ux.png',
   'Robot-Learning-From-Human--Streamline-Bangalore.png',
   'Start-Up-Team--Streamline-Bangalore.png',

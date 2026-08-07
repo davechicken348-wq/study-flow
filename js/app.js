@@ -2,6 +2,7 @@
 import { generateId, getToday, formatDate, formatTime, formatDuration, formatDurationClock, getWeekDates, getStartOfWeek, escapeHtml, debounce, parseMarkdown } from './utils.js';
 import Storage from './storage.js';
 import SQ from './smart_questioning.js';
+import { groupNotes, groupNotesByLens } from './affinityWeaving.js';
 
 function attachQuestionToggle(container) {
   if (!container) return;
@@ -836,19 +837,46 @@ const app = {
           <option value="">All subjects</option>
           ${subjects.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}
         </select>
+        <select id="noteGroupLens" class="form-control" title="Group notes by">
+          <option value="subject">Group: Subject</option>
+          <option value="affinity">Group: Affinity</option>
+          <option value="recency">Group: Recency</option>
+          <option value="questions">Group: Questions</option>
+        </select>
       </div>
-      <div class="grid grid-2 gap" id="notesGrid">
-        ${notes.length === 0 ? `
-          <div class="empty-state empty-state-lg" style="grid-column:1/-1">
-            <img class="empty-illo" src="assets/illustrations/Communication-Contact-Post-It-To-Do-Notes-01--Streamline-Bangalore.png" alt="">
-            <h3>No notes yet</h3>
-            <p>Capture ideas, summaries, and key points from your study sessions.</p>
-          </div>` : notes.map((n) => this.noteCardHTML(n, subjects)).join('')}
-      </div>
+      <div class="grid grid-2 gap" id="notesGrid"></div>
     `;
 
     const search = document.getElementById('noteSearch');
     const filter = document.getElementById('noteSubjectFilter');
+    const lensSelect = document.getElementById('noteGroupLens');
+
+    const renderGrouped = (srcNotes) => {
+      const lens = lensSelect ? lensSelect.value : 'affinity';
+      const { groups, ungrouped } = groupNotesByLens(srcNotes, lens, subjects);
+      const blocks = groups.map((g) => `
+        <section class="note-group" style="grid-column:1/-1">
+          <header class="note-group-head">
+            <span class="note-group-label">${escapeHtml(g.label)}</span>
+            <span class="note-group-count">${g.size} note${g.size === 1 ? '' : 's'}</span>
+          </header>
+          <div class="grid grid-2 gap note-group-grid">
+            ${g.members.map((n) => this.noteCardHTML(n, subjects)).join('')}
+          </div>
+        </section>
+      `).join('');
+      const loose = ungrouped.length ? `
+        <section class="note-group" style="grid-column:1/-1">
+          <header class="note-group-head">
+            <span class="note-group-label">Ungrouped</span>
+            <span class="note-group-count">${ungrouped.length} note${ungrouped.length === 1 ? '' : 's'}</span>
+          </header>
+          <div class="grid grid-2 gap note-group-grid">
+            ${ungrouped.map((n) => this.noteCardHTML(n, subjects)).join('')}
+          </div>
+        </section>` : '';
+      return blocks + loose;
+    };
 
     const applyFilter = () => {
       const query = search.value.toLowerCase();
@@ -860,7 +888,18 @@ const app = {
       });
 
       const grid = document.getElementById('notesGrid');
-      grid.innerHTML = filtered.length === 0 ? '<p class="muted">No notes match your search.</p>' : filtered.map((n) => this.noteCardHTML(n, subjects)).join('');
+      if (notes.length === 0) {
+        grid.innerHTML = `
+          <div class="empty-state empty-state-lg" style="grid-column:1/-1">
+            <img class="empty-illo" src="assets/illustrations/Communication-Contact-Post-It-To-Do-Notes-01--Streamline-Bangalore.png" alt="">
+            <h3>No notes yet</h3>
+            <p>Capture ideas, summaries, and key points from your study sessions.</p>
+          </div>`;
+      } else {
+        grid.innerHTML = filtered.length === 0
+          ? '<p class="muted">No notes match your search.</p>'
+          : renderGrouped(filtered);
+      }
 
       grid.querySelectorAll('[data-action="delete-note"]').forEach((b) => {
         b.addEventListener('click', () => this.deleteNote(b.dataset.id));
@@ -879,6 +918,8 @@ const app = {
 
     search.addEventListener('input', debounce(applyFilter, 300));
     filter.addEventListener('change', applyFilter);
+    lensSelect.addEventListener('change', applyFilter);
+    applyFilter();
 
     document.getElementById('addNoteBtn')?.addEventListener('click', () => this.showNoteForm());
     el.querySelectorAll('[data-action="delete-note"]').forEach((b) => {
@@ -915,8 +956,13 @@ const app = {
                <span class="badge">${subj ? escapeHtml(subj.name) : 'No subject'}</span>
                <span class="muted text-sm">${formatDate(note.updatedAt || note.createdAt)}</span>
              </div>
-             <div class="note-preview-content" id="previewModalContent">${parseMarkdown(note.content || '', note.questions || [])}</div>
-             <div class="preview-question-tooltip" id="previewModalTooltip" aria-hidden="true"></div>
+              <div class="note-preview-content" id="previewModalContent">${note.content && note.content.trim() ? parseMarkdown(note.content || '', note.questions || []) : `
+                <div class="note-preview-empty">
+                  <img class="note-preview-empty-illo" src="assets/illustrations/Documents-4--Streamline-Bangalore.png" alt="">
+                  <p>This note is still a blank draft. Open the editor to start writing.</p>
+                </div>
+              `}</div>
+              <div class="preview-question-tooltip" id="previewModalTooltip" aria-hidden="true"></div>
            </div>
          </div>
        </div>

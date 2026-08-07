@@ -1410,6 +1410,21 @@ select { cursor: pointer; }
 
 /* ── Note preview modal ── */
 .note-preview-full { padding: 4px 0; }
+.note-preview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 24px 12px;
+  color: var(--text-3);
+}
+.note-preview-empty-illo {
+  width: 160px;
+  height: 160px;
+  object-fit: contain;
+  opacity: 0.9;
+  margin-bottom: 12px;
+}
 .note-preview-content { line-height: 1.7; overflow-wrap: break-word; word-break: break-word; }
 .note-preview-content h2 { font-size: 1.15rem; font-weight: 600; margin-bottom: 8px; }
 .note-preview-content h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 6px; }
@@ -2013,4 +2028,29 @@ select { cursor: pointer; }
 @media (min-width: 769px) and (max-width: 1024px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
   .page-content { padding: 24px 20px 48px; }
+}
+
+/* Affinity Weaving — grouped notes view */
+.note-group {
+  margin-bottom: 8px;
+}
+.note-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 4px 2px 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--border, #e2e2ee);
+}
+.note-group-label {
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.2px;
+}
+.note-group-count {
+  font-size: 0.78rem;
+  color: var(--muted, #8a90b0);
+}
+.note-group-grid {
+  margin-bottom: 18px;
 }
