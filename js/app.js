@@ -369,7 +369,7 @@ const app = {
             return `
           <div class="card subject-card" style="--subj: ${escapeHtml(s.color)}">
             <div class="subject-card-top">
-              <div class="subject-avatar">${escapeHtml((s.name || '?').charAt(0).toUpperCase())}</div>
+              <div class="subject-avatar"><img src="assets/illustrations/Laptop-Workspace-3--Streamline-Ux.png" alt="${escapeHtml(s.name || 'Subject')}"></div>
               <div class="flex gap-xs">
                 <button class="btn btn-ghost btn-sm" data-action="edit-subject" data-id="${s.id}" aria-label="Edit">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
@@ -756,11 +756,10 @@ const app = {
   noteCardHTML(n, subjects) {
     const subj = subjects.find((x) => x.id === n.subjectId);
     const subjColor = subj && subj.color ? subj.color : 'var(--accent)';
-    const initial = escapeHtml((n.title || '?').charAt(0).toUpperCase());
     return `
       <div class="card note-card" data-note-id="${n.id}" style="--subj: ${subjColor}">
         <div class="note-card-head">
-          <div class="note-card-icon">${initial}</div>
+          <div class="note-card-icon"><img src="assets/illustrations/Pin-Post-It-Note--Streamline-Ux.png" alt="${escapeHtml(n.title || 'Note')}"></div>
           <span class="badge note-subject">${subj ? escapeHtml(subj.name) : 'No subject'}</span>
         </div>
         <h3 class="truncate">${escapeHtml(n.title)}</h3>
