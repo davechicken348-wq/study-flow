@@ -74,6 +74,24 @@ export function debounce(fn, ms) {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
 
+export function renderSmartQuestion(qid, questions) {
+  const q = questions.find(x => x.id === qid);
+  if (!q) {
+    return '<span class="question-inline question-inline-orphan" data-question-id="' + escapeHtml(qid) + '"><span class="question-inline-mark">?</span>Unknown question</span>';
+  }
+  const state = q.resolved ? 'resolved' : (q.answer ? 'answered' : 'open');
+  const mark = q.resolved ? '✓' : '?';
+  const answerHtml = q.answer
+    ? ' — <span class="question-inline-answer">' + escapeHtml(q.answer) + '</span>'
+    : '';
+  return (
+    '<span class="question-inline question-inline-' + state + '" data-question-id="' + escapeHtml(q.id) + '">' +
+      '<button type="button" class="question-inline-mark" aria-label="Toggle question">' + mark + '</button>' +
+      '<span class="question-inline-text">' + escapeHtml(q.text) + answerHtml + '</span>' +
+    '</span>'
+  );
+}
+
 export function parseMarkdown(text, questions = []) {
   if (!text) return '';
   const questionMap = new Map(questions.map(q => [q.id, q]));
@@ -131,11 +149,9 @@ export function parseMarkdown(text, questions = []) {
       const qid = questionMatch[1];
       const q = questionMap.get(qid);
       if (q) {
-        const answerText = q.answer ? escapeHtml(q.answer) : 'No answer yet';
-        const resolvedClass = q.resolved ? ' resolved' : '';
-        html += `<span class="question-marker${resolvedClass}" data-question-id="${escapeHtml(qid)}">?<span class="question-tooltip"><strong>Q:</strong> ${escapeHtml(q.text)}<br><strong>A:</strong> ${answerText}</span></span>`;
+        html += renderSmartQuestion(qid, questions);
       } else {
-        html += '<span class="question-marker">?</span>';
+        html += '<span class="question-inline question-inline-orphan" data-question-id="' + escapeHtml(qid) + '"><span class="question-inline-mark">?</span>Unknown question</span>';
       }
       continue;
     }

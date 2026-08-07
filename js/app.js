@@ -1,6 +1,18 @@
 // @ts-nocheck
 import { generateId, getToday, formatDate, formatTime, formatDuration, formatDurationClock, getWeekDates, getStartOfWeek, escapeHtml, debounce, parseMarkdown } from './utils.js';
 import Storage from './storage.js';
+import SQ from './smart_questioning.js';
+
+function attachQuestionToggle(container) {
+  if (!container) return;
+  container.addEventListener('click', (e) => {
+    const mark = e.target.closest('.question-inline-mark');
+    if (!mark) return;
+    e.preventDefault();
+    const inline = mark.closest('.question-inline');
+    if (inline) inline.classList.toggle('collapsed');
+  });
+}
 
 function attachQuestionTooltip({ container, tooltipEl, questions }) {
   if (document.body.contains(tooltipEl)) {
@@ -886,49 +898,106 @@ const app = {
 
      const modalContent = document.getElementById('previewModalContent');
      const modalTooltip = document.getElementById('previewModalTooltip');
-     if (modalContent && modalTooltip && (note.questions || []).length) {
-       attachQuestionTooltip({
-         container: modalContent,
-         tooltipEl: modalTooltip,
-         questions: note.questions || [],
-       });
-     }
+      if (modalContent && modalTooltip && (note.questions || []).length) {
+        attachQuestionTooltip({
+          container: modalContent,
+          tooltipEl: modalTooltip,
+          questions: note.questions || [],
+        });
+      }
+      attachQuestionToggle(modalContent);
 
       document.getElementById('closePreviewModal')?.addEventListener('click', () => this.closeModals());
       this.renderMathInPreview();
     },
 
-  async showNoteForm(note) {
+   async showNoteForm(note) {
     const subjects = await Storage.getAllSubjects();
     const isEdit = !!note;
     const data = note || { id: generateId(), title: '', subjectId: '', content: '' };
 
+    const moodLines = [
+      'Capture a thought before it slips away.',
+      'What clicked for you today?',
+      'Turn a messy idea into a clear note.',
+      'Write it down — your future self will thank you.',
+      'One small note, one step forward.',
+    ];
+    const mood = moodLines[Math.floor(Math.random() * moodLines.length)];
+
     this.openModal(`
       <div class="modal-overlay">
-        <div class="modal">
-          <div class="modal-header"><h2>${isEdit ? 'Edit' : 'Add'} Note</h2></div>
-          <form id="noteForm" class="p">
-            <input type="hidden" id="noteId" value="${data.id}">
-            <div class="form-group">
-              <label>Title</label>
-              <input type="text" id="noteTitle" required value="${data.title}">
+        <div class="modal note-composer">
+          <div class="note-composer-head">
+            <div class="note-composer-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 11v6M9 14h6"/></svg>
             </div>
-            <div class="form-group">
-              <label>Subject</label>
-              <select id="noteSubject">
-                <option value="">No subject</option>
-                ${subjects.map((s) => `<option value="${s.id}" ${data.subjectId === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
-              </select>
+            <div>
+              <h2 class="note-composer-title">${isEdit ? 'Edit your note' : 'New note'}</h2>
+              <p class="note-composer-mood">${escapeHtml(mood)}</p>
             </div>
-            <p class="subtle" style="margin-top:8px">Tap the note to open the editor and write content.</p>
-            <div class="flex justify-end gap mt">
-              <button type="button" class="btn btn-ghost" id="cancelModal">Cancel</button>
-              <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+          <div class="note-composer-body">
+            <form id="noteForm" class="p">
+              <input type="hidden" id="noteId" value="${data.id}">
+              <input type="hidden" id="noteSubject" value="${data.subjectId || ''}">
+              <div class="form-group">
+                <label for="noteTitle">Give it a title</label>
+                <input type="text" id="noteTitle" required value="${data.title}" placeholder="e.g. Photosynthesis, Chapter 4 summary…" autocomplete="off">
+                <div class="note-composer-counter"><span id="titleCount">0</span> characters</div>
+              </div>
+              <div class="form-group">
+                <label>Tag a subject ${subjects.length ? '' : '<span class="muted">(optional)</span>'}</label>
+                <div class="note-subject-chips" id="noteSubjectChips">
+                  <button type="button" class="note-chip ${!data.subjectId ? 'selected' : ''}" data-subject="" style="--chip:#8a90b0">None</button>
+                  ${subjects.map((s) => `
+                    <button type="button" class="note-chip ${data.subjectId === s.id ? 'selected' : ''}" data-subject="${s.id}" style="--chip:${escapeHtml(s.color)}">
+                      <span class="note-chip-dot"></span>${escapeHtml(s.name)}
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+              <p class="subtle" style="margin-top:4px">After saving, you'll open the editor to write and sketch your note.</p>
+              <div class="flex justify-end gap mt">
+                <button type="button" class="btn btn-ghost" id="cancelModal">Cancel</button>
+                <button type="submit" class="btn btn-primary">${isEdit ? 'Save changes' : 'Create note'}</button>
+              </div>
+            </form>
+            <div class="note-composer-preview">
+              <span class="note-composer-preview-label">Preview</span>
+              <div class="note-composer-preview-card" id="composerPreview">
+                <h3 class="note-composer-preview-title" id="composerPreviewTitle">${escapeHtml(data.title) || '<span class="muted">Your title appears here</span>'}</h3>
+                <p class="note-composer-preview-sub" id="composerPreviewSub">${data.subjectId && subjects.find(s => s.id === data.subjectId) ? escapeHtml(subjects.find(s => s.id === data.subjectId).name) : 'No subject yet'}</p>
+                <div class="note-composer-preview-empty">Start typing a title to see your note take shape. Questions and formatting come alive in the editor.</div>
+              </div>
             </div>
-          </form>
+          </div>
         </div>
       </div>
     `);
+
+    const titleInput = document.getElementById('noteTitle');
+    const titleCount = document.getElementById('titleCount');
+    const previewTitle = document.getElementById('composerPreviewTitle');
+    const previewSub = document.getElementById('composerPreviewSub');
+    titleInput?.addEventListener('input', () => {
+      if (titleCount) titleCount.textContent = String(titleInput.value.length);
+      if (previewTitle) {
+        previewTitle.innerHTML = titleInput.value.trim()
+          ? escapeHtml(titleInput.value)
+          : '<span class="muted">Your title appears here</span>';
+      }
+    });
+
+    document.querySelectorAll('#noteSubjectChips .note-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('#noteSubjectChips .note-chip').forEach((c) => c.classList.remove('selected'));
+        chip.classList.add('selected');
+        document.getElementById('noteSubject').value = chip.dataset.subject || '';
+        const subj = subjects.find((s) => s.id === chip.dataset.subject);
+        if (previewSub) previewSub.textContent = subj ? subj.name : 'No subject yet';
+      });
+    });
 
     document.getElementById('cancelModal').addEventListener('click', () => this.closeModals());
     document.getElementById('noteForm').addEventListener('submit', async (e) => {
@@ -938,11 +1007,11 @@ const app = {
       const subjectId = document.getElementById('noteSubject').value || null;
       const content = note?.content || '';
 
-      if (!title) return this.toast('Title is required', 'error');
+      if (!title) return this.toast('A title helps you find this later', 'error');
       const existing = note ? await Storage.getNote(id) : null;
       const noteObj = { ...existing, id, title, subjectId, content };
       await Storage.saveNote(noteObj);
-      this.toast(isEdit ? 'Note updated' : 'Note added', 'success');
+      this.toast(isEdit ? 'Note updated' : 'Note added — keep going!', 'success');
       this.closeModals();
       this.renderNotes();
     });
@@ -1030,7 +1099,13 @@ const app = {
           </div>
         </div>
 
-        <div class="note-word-count" id="noteWordCount">${(note.content || '').split(/\s+/).filter(Boolean).length} words</div>
+        <div class="note-editor-foot">
+          <div class="note-word-count" id="noteWordCount">${(note.content || '').split(/\s+/).filter(Boolean).length} words</div>
+          <div class="note-reflection" id="noteReflection" title="How inquiry-rich this note is">
+            <span class="note-reflection-label">Reflection</span>
+            <span class="note-reflection-dots" id="noteReflectionDots"></span>
+          </div>
+        </div>
 
         <div class="card mt" id="noteVoiceMemoCard">
           <div class="note-voice-memo-header">
@@ -1149,6 +1224,20 @@ const app = {
       const maxScroll = previewScroll.scrollHeight - previewScroll.clientHeight;
       previewScroll.scrollTop = prevScroll > maxScroll ? Math.max(0, maxScroll) : prevScroll;
        wordCount.textContent = content.split(/\s+/).filter(Boolean).length + ' words';
+
+       const reflectionDots = document.getElementById('noteReflectionDots');
+       if (reflectionDots) {
+         const candidates = SQ.analyze(content, currentQuestions);
+         const resolved = currentQuestions.filter((q) => q.resolved).length;
+         const total = currentQuestions.length + candidates.length;
+         const level = total === 0 ? 0 : Math.min(5, 1 + Math.round((total / 6) * 4));
+         reflectionDots.innerHTML = Array.from({ length: 5 }, (_, i) =>
+           `<span class="note-reflection-dot ${i < level ? (resolved >= total && total ? 'done' : 'on') : ''}"></span>`
+         ).join('');
+         reflectionDots.parentElement?.setAttribute('title',
+           total === 0 ? 'Write a question or a doubt to grow your reflection'
+                      : `${total} open inquiry${total > 1 ? 'ies' : 'y'}${resolved ? `, ${resolved} resolved` : ''}`);
+       }
        attachLinkHandlers();
        this.renderMathInPreview();
 
@@ -1193,7 +1282,18 @@ const app = {
       }
 
       if (currentQuestions.length === 0) {
-        questionsListEl.innerHTML = '<div class="note-questions-empty">No questions yet<br><span class="note-questions-empty-sub">Type QUES in the editor to create a question</span></div>';
+        questionsListEl.innerHTML = `
+          <div class="note-questions-empty note-questions-onboard">
+            <img class="note-questions-illo" src="assets/illustrations/I-Have-A-Question-2--Streamline-Bangalore.png" alt="">
+            <h3>No questions yet</h3>
+            <p class="note-questions-onboard-text">Turn what you're unsure about into reviewable questions. As you write in the editor, we'll spot these moments and offer to capture them:</p>
+            <ul class="note-questions-howto">
+              <li><strong>Ask directly</strong> — end a line with <code>?</code> or start with a question word (What, Why, How…).</li>
+              <li><strong>Name a doubt</strong> — write "I'm not sure…", "confused about…", or "stuck on…".</li>
+              <li><strong>Stay curious</strong> — hedges like "maybe" or "I think" paired with a question also count.</li>
+            </ul>
+            <p class="note-questions-onboard-hint">When we spot one, a small chip appears — tap <em>Add</em> and it becomes a tracked question you can answer and resolve.</p>
+          </div>`;
         return;
       }
 
@@ -1264,77 +1364,94 @@ const app = {
       });
     };
 
-    const openQuestionPrompt = (lineNumber, lineContent) => {
-      const modalHtml = `
-        <div class="modal-overlay">
-          <div class="modal" style="max-width:520px">
-            <div class="modal-header"><h3>New question — L${lineNumber}</h3></div>
-            <form id="questionForm" class="p">
-              <div class="form-group">
-                <label>Your question</label>
-                <input type="text" id="questionTextInput" placeholder="What do you want to ask?" autofocus>
-              </div>
-              <p class="subtle" style="font-size:0.78rem;margin-top:4px">${escapeHtml(lineContent)}</p>
-              <div class="flex justify-end gap mt">
-                <button type="button" class="btn btn-ghost" id="cancelQuestionBtn">Cancel</button>
-                <button type="submit" class="btn btn-primary">Save question</button>
-              </div>
-            </form>
-          </div>
+    const attachQuestionToLine = async (lineNumber, text) => {
+      const question = {
+        id: 'ques_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+        text,
+        answer: null,
+        resolved: false,
+        createdAt: new Date().toISOString(),
+        lineNumber,
+      };
+      currentQuestions.push(question);
+
+      const content = contentInput.value || '';
+      const lines = content.split('\n');
+      const targetLine = Math.max(0, Math.min(lineNumber - 1, lines.length - 1));
+      lines.splice(targetLine + 1, 0, `[Q:${question.id}]`);
+      contentInput.value = lines.join('\n');
+      await saveCurrentQuestions();
+      updatePreview();
+      this.toast('Question added to your reflection', 'success');
+    };
+
+    // Soft inline chip shown beside a detected candidate line
+    const showInlinePrompt = (lineNumber, cleaned) => {
+      const existing = document.querySelector(`.sq-prompt[data-line="${lineNumber}"]`);
+      if (existing) return;
+
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'sq-prompt';
+      chip.dataset.line = String(lineNumber);
+      chip.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4"/><line x1="12" y1="17" x2="12" y2="17"/></svg>
+        Turn this into a question?
+      `;
+
+      const menu = document.createElement('div');
+      menu.className = 'sq-prompt-menu';
+      menu.innerHTML = `
+        <div class="sq-prompt-text" title="${escapeHtml(cleaned)}">${escapeHtml(cleaned.length > 80 ? cleaned.slice(0, 80) + '…' : cleaned)}</div>
+        <div class="sq-prompt-actions">
+          <button type="button" class="btn btn-primary btn-sm sq-add">Add</button>
+          <button type="button" class="btn btn-ghost btn-sm sq-dismiss">Dismiss</button>
         </div>
       `;
-      this.openModal(modalHtml);
 
-      const form = document.getElementById('questionForm');
-      const input = document.getElementById('questionTextInput');
-      input?.focus();
-
-      form?.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const text = input.value.trim();
-        if (!text) return;
-
-        const question = {
-          id: 'ques_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
-          text,
-          answer: null,
-          resolved: false,
-          createdAt: new Date().toISOString(),
-        };
-        currentQuestions.push(question);
-
-        const content = contentInput.value || '';
-        const lines = content.split('\n');
-        const targetLine = Math.max(0, Math.min(lineNumber - 1, lines.length - 1));
-        lines[targetLine] = lines[targetLine].replace(/\bQUES\b/gi, '').trimEnd();
-        lines.splice(targetLine + 1, 0, `[Q:${question.id}]`);
-        contentInput.value = lines.join('\n');
-        await saveCurrentQuestions();
-        updatePreview();
-        this.closeModals();
-        this.toast('Question attached', 'success');
+      chip.addEventListener('click', () => {
+        const open = chip.classList.toggle('open');
+        if (open) {
+          document.querySelectorAll('.sq-prompt.open').forEach((c) => { if (c !== chip) c.classList.remove('open'); });
+        }
+      });
+      menu.querySelector('.sq-add').addEventListener('click', () => {
+        attachQuestionToLine(lineNumber, cleaned || `From line ${lineNumber}`);
+        chip.remove();
+      });
+      menu.querySelector('.sq-dismiss').addEventListener('click', () => {
+        chip.classList.add('dismissed');
+        chip.remove();
       });
 
-      document.getElementById('cancelQuestionBtn')?.addEventListener('click', () => {
-        this.closeModals();
-      });
+      const host = document.getElementById('sqPromptHost') || (() => {
+        const el = document.createElement('div');
+        el.id = 'sqPromptHost';
+        el.className = 'sq-prompt-host';
+        document.querySelector('.note-editor')?.appendChild(el);
+        return el;
+      })();
+      chip.appendChild(menu);
+      host.appendChild(chip);
     };
 
     const detectAndPromptQuestions = debounce(async () => {
       if (!contentInput) return;
       const content = contentInput.value || '';
-      const lines = content.split('\n');
+      const candidates = SQ.analyze(content, currentQuestions);
 
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const lineNumber = i + 1;
-        if (/\bQUES\b/i.test(line)) {
-          const cleaned = line.replace(/\bQUES\b/gi, '').trim();
-          openQuestionPrompt(lineNumber, cleaned || '(empty line)');
-          return;
+      // Stamp detected line numbers onto questions that lack one (so re-checks skip them)
+      let mutated = false;
+      for (const q of currentQuestions) {
+        if (typeof q.lineNumber !== 'number') {
+          const idx = content.split('\n').findIndex((l) => l.includes(`[Q:${q.id}]`));
+          if (idx >= 0) { q.lineNumber = idx + 1; mutated = true; }
         }
       }
-    }, 400);
+      if (mutated) await saveCurrentQuestions().catch(() => {});
+
+      candidates.slice(0, 6).forEach((c) => showInlinePrompt(c.lineNumber, c.line));
+    }, 500);
 
     contentInput?.addEventListener('input', detectAndPromptQuestions);
 
@@ -1355,7 +1472,7 @@ const app = {
     // Initial render
     renderQuestionsPanel();
 
-    // ── Preview tooltip for question markers ─────────────────────────────────
+    // ── Preview tooltip + collapse toggle for question markers ───────────────
     const previewTooltip = document.getElementById('previewQuestionTooltip');
     if (previewScroll && previewTooltip) {
       attachQuestionTooltip({
@@ -1364,6 +1481,7 @@ const app = {
         questions: currentQuestions,
       });
     }
+    attachQuestionToggle(previewScroll);
 
     const recordBtn = document.getElementById('noteRecordBtn');
     const stopBtn = document.getElementById('noteStopRecordBtn');
