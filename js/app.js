@@ -69,10 +69,36 @@ const app = {
 
   async init() {
     this.initTheme();
+    this.initImageFallback();
     this.setupListeners();
     await this.restoreTimerState();
     this.initNotifications();
     this.handleRoute();
+  },
+
+  handleImageError(img) {
+    if (!img || img.dataset.fallbackApplied) return;
+    img.dataset.fallbackApplied = '1';
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const stroke = isDark ? '#7c83a8' : '#c3c8e8';
+    const label = (img.alt && img.alt.trim()) ? img.alt.trim() : '';
+    const svg = encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${stroke}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="4"/>
+        <path d="M8 12h8"/><path d="M12 8v8"/>
+      </svg>`
+    );
+    img.src = `data:image/svg+xml,${svg}`;
+    img.classList.add('img-fallback');
+    if (label) img.alt = label;
+    img.removeAttribute('onerror');
+  },
+
+  initImageFallback() {
+    document.addEventListener('error', (e) => {
+      const t = e.target;
+      if (t && t.tagName === 'IMG') this.handleImageError(t);
+    }, true);
   },
 
   initTheme() {

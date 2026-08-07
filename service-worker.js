@@ -1,4 +1,22 @@
-const CACHE = 'studyflow-v3';
+const CACHE = 'studyflow-v4';
+const VERSIONED = CACHE;
+const ILLUSTRATIONS = [
+  'Bills-Payment-01--Streamline-Bangalore.png',
+  'Business-Business-Graph-Negative-01--Streamline-Bangalore.png',
+  'Business-Charts-Pie-And-Bars--Streamline-Bangalore.png',
+  'Communication-Contact-Post-It-To-Do-Notes-01--Streamline-Bangalore.png',
+  'Designer-Creative--Streamline-Bangalore.png',
+  'Development-Code-Learning-01--Streamline-Bangalore.png',
+  'Documents-4--Streamline-Bangalore.png',
+  'Education-Online-Learning-02--Streamline-Bangalore.png',
+  'Hr-Human-Resources-2--Streamline-Bangalore.png',
+  'I-Have-A-Question-2--Streamline-Bangalore.png',
+  'Laptop-Workspace-3--Streamline-Ux.png',
+  'Pin-Post-It-Note--Streamline-Ux.png',
+  'Robot-Learning-From-Human--Streamline-Bangalore.png',
+  'Start-Up-Team--Streamline-Bangalore.png',
+  'Work-Being-Creative-01--Streamline-Bangalore.png',
+];
 const PRECACHE = [
   './',
   './index.html',
@@ -8,13 +26,7 @@ const PRECACHE = [
   './js/app.js',
   './manifest.json',
   './assets/vendor/chart.umd.min.js',
-  './assets/illustrations/Bills-Payment-01--Streamline-Bangalore.png',
-  './assets/illustrations/Business-Business-Graph-Negative-01--Streamline-Bangalore.png',
-  './assets/illustrations/Business-Charts-Pie-And-Bars--Streamline-Bangalore.png',
-  './assets/illustrations/Communication-Contact-Post-It-To-Do-Notes-01--Streamline-Bangalore.png',
-  './assets/illustrations/Development-Code-Learning-01--Streamline-Bangalore.png',
-  './assets/illustrations/Education-Online-Learning-02--Streamline-Bangalore.png',
-  './assets/illustrations/Robot-Learning-From-Human--Streamline-Bangalore.png',
+  ...ILLUSTRATIONS.map((f) => `./assets/illustrations/${f}`),
 ];
 
 self.addEventListener('install', (e) => {

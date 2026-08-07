@@ -737,6 +737,10 @@ select { cursor: pointer; }
   object-fit: contain;
   opacity: 0.9;
 }
+.img-fallback {
+  opacity: 0.5;
+  object-fit: contain;
+}
 .note-editor-empty p {
   max-width: 260px;
   font-size: 0.9rem;
