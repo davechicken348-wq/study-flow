@@ -3,6 +3,7 @@ import { generateId, getToday, formatDate, formatTime, formatDuration, formatDur
 import Storage from './storage.js';
 import SQ from './smart_questioning.js';
 import { groupNotes, groupNotesByLens } from './affinityWeaving.js';
+import { FocusEngine, PHASE, FOCUS_DEFAULTS } from './focusEngine.js';
 
 function attachQuestionToggle(container) {
   if (!container) return;
@@ -62,11 +63,7 @@ function attachQuestionTooltip({ container, tooltipEl, questions }) {
 const PRESET_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ef4444', '#64748b'];
 
 const app = {
-  timerRunning: false,
-  timerElapsed: 0,
-  timerStartTime: null,
-  timerInterval: null,
-  timerSession: null,
+  engine: null,
 
   async init() {
     this.initTheme();
@@ -226,8 +223,9 @@ const app = {
   },
 
   async renderDashboard() {
-    const [subjects, sessions, goals] = await Promise.all([
+    const [subjects, sessions, goals, focusState] = await Promise.all([
       Storage.getAllSubjects(), Storage.getAllSessions(), Storage.getAllGoals(),
+      Storage.getSetting('focusEngine'),
     ]);
     const today = getToday();
     const todaySessions = sessions.filter((s) => s.date === today);
@@ -343,28 +341,48 @@ const app = {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
           </button>
         </div>
-        ${todaySessions.filter((s) => s.source === 'timer').length === 0 ? `
-          <div class="empty-state">
-            <img class="empty-illo" src="assets/illustrations/Development-Code-Learning-01--Streamline-Bangalore.png" alt="">
-            <h3>No timer sessions yet today</h3>
-            <p>Use the Timer to start tracking your study time.</p>
-          </div>` : `
-          <div class="mt">
-            ${todaySessions.filter((s) => s.source === 'timer').map((s) => {
-              const subj = subjects.find((x) => x.id === s.subjectId);
-              const status = s.paused ? 'Paused' : (s.endTime ? formatDuration(s.duration || 0) : 'Running');
-              return `
-                <div class="flex justify-between items-center mb-sm">
-                  <div>
-                    <div class="font-medium">${subj ? escapeHtml(subj.name) : 'Unknown'}</div>
-                    <div class="muted text-sm">${s.description ? escapeHtml(s.description) : ''}</div>
+          ${todaySessions.filter((s) => s.source === 'timer').length === 0 ? `
+            <div class="empty-state">
+              <img class="empty-illo" src="assets/illustrations/Development-Code-Learning-01--Streamline-Bangalore.png" alt="">
+              <h3>No timer sessions yet today</h3>
+              <p>Use the Timer to start tracking your study time.</p>
+            </div>` : `
+            <div class="mt">
+              ${todaySessions.filter((s) => s.source === 'timer').map((s) => {
+                const subj = subjects.find((x) => x.id === s.subjectId);
+                const isActive = focusState && focusState.sessionId === s.id && !focusState.closed;
+                let status, badge;
+                if (s.endTime) {
+                  status = formatDuration(s.duration || 0);
+                  badge = 'badge-success';
+                } else if (isActive && focusState.paused) {
+                  status = 'Paused';
+                  badge = 'badge-muted';
+                } else if (isActive) {
+                  const phase = focusState.phase === 'break' ? 'Break' : 'Focus';
+                  const roundInfo = focusState.config && focusState.config.rounds > 1
+                    ? ` · R${Math.min((focusState.round || 0) + 1, focusState.config.rounds)}/${focusState.config.rounds}` : '';
+                  status = phase + roundInfo;
+                  badge = 'badge-primary';
+                } else {
+                  status = 'Paused';
+                  badge = 'badge-muted';
+                }
+                const goal = s.goalId ? goals.find((g) => g.id === s.goalId) : null;
+                const subLabel = goal ? (subj ? subj.name + ' · ' : '') + (goal.label || goal.type)
+                                      : (subj ? subj.name : 'Unknown');
+                return `
+                  <div class="flex justify-between items-center mb-sm">
+                    <div>
+                      <div class="font-medium">${escapeHtml(subLabel)}</div>
+                      <div class="muted text-sm">${s.description ? escapeHtml(s.description) : ''}</div>
+                    </div>
+                    <span class="badge ${badge}">${status}</span>
                   </div>
-                  <span class="badge badge-success">${status}</span>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        `}
+                `;
+              }).join('')}
+            </div>
+          `}
       </div>
       </div>
 
@@ -675,19 +693,86 @@ const app = {
 
   async renderTimer() {
     const subjects = await Storage.getAllSubjects();
+    const goals = await Storage.getAllGoals();
+    const linkableGoals = goals.filter((g) => g.active && g.type !== 'daily');
     const el = document.getElementById('pageContent');
 
+    if (!this.engine) this.engine = new FocusEngine();
+    const eng = this.engine;
+    const phase = eng.phase;
+    const running = eng.isRunning() && phase !== PHASE.IDLE && phase !== PHASE.COMPLETE;
+    const paused = !!eng.paused && phase !== PHASE.IDLE && phase !== PHASE.COMPLETE;
+    const hasSession = phase !== PHASE.IDLE;
+
+    const phaseLabel = paused ? 'Paused' : (phase === PHASE.BREAK ? 'Break' : (phase === PHASE.COMPLETE ? 'Complete' : 'Focus'));
+    const ringProgress = hasSession ? Math.round(eng.progress() * 100) : 0;
+    const display = hasSession ? formatDurationClock(eng.remainingInPhase()) : formatDurationClock(0);
+    const roundsInfo = eng.config.rounds > 1 ? `Round ${Math.min(eng.round + (running ? 1 : 0), eng.config.rounds)} / ${eng.config.rounds}` : '';
+
+    const illoCaption = hasSession
+      ? (phase === PHASE.BREAK ? "Step away for a moment — you've earned it." : (phase === PHASE.COMPLETE ? "That's a wrap. Nicely done." : "Stay with it. One round at a time."))
+      : "Pick a focus and begin when you're ready.";
+
     el.innerHTML = `
-      <div class="flex flex-col items-center justify-center" style="min-height: 60vh;">
-        <div class="timer-display ${this.timerRunning ? 'timer-running' : ''}" id="timerDisplay">${formatDurationClock(this.timerElapsed)}</div>
-        <select class="mb" id="timerSubject" style="max-width:260px;" ${subjects.length === 0 ? 'disabled' : ''}>
-          <option value="">Select subject</option>
-          ${subjects.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}
-        </select>
-        <div class="flex gap mt">
-          ${!this.timerRunning && this.timerElapsed === 0 ? `<button class="btn btn-primary btn-lg" id="startTimerBtn">Start</button>` : ''}
-          ${this.timerRunning ? `<button class="btn btn-ghost btn-lg" id="pauseTimerBtn">Pause</button>` : ''}
-          ${!this.timerRunning && this.timerElapsed > 0 ? `<button class="btn btn-primary btn-lg" id="resumeTimerBtn">Resume</button><button class="btn btn-danger btn-lg" id="stopTimerBtn">Stop</button>` : ''}
+      <div class="timer-stage ${hasSession ? 'is-active' : 'is-idle'} ${phase === PHASE.BREAK ? 'is-break' : ''}">
+        <div class="timer-companion">
+          <div class="timer-companion-illo">
+            <img class="timer-illo" src="assets/illustrations/Time-In-For-Work--Streamline-Bangalore.png" alt="">
+          </div>
+          <p class="timer-companion-caption" id="timerCompanionCaption">${illoCaption}</p>
+        </div>
+
+        <div class="timer-panel">
+          <div class="focus-ring-wrap">
+            <svg class="focus-ring" viewBox="0 0 220 220">
+              <circle class="focus-ring-bg" cx="110" cy="110" r="100"></circle>
+              <circle class="focus-ring-fg ${phase === PHASE.BREAK ? 'is-break' : ''}" cx="110" cy="110" r="100"
+                style="stroke-dasharray:628; stroke-dashoffset:${628 - (628 * ringProgress) / 100}"></circle>
+            </svg>
+            <div class="focus-ring-center">
+              <div class="timer-display ${running ? 'timer-running' : ''}" id="timerDisplay">${display}</div>
+              <div class="focus-phase-label" id="focusPhaseLabel">${phaseLabel}</div>
+              ${roundsInfo ? `<div class="focus-rounds" id="focusRounds">${roundsInfo}</div>` : ''}
+            </div>
+          </div>
+
+          ${!hasSession ? `
+            <div class="focus-config">
+              <div class="focus-config-row">
+                <label>Subject</label>
+                <select id="timerSubject" style="max-width:260px;" ${subjects.length === 0 ? 'disabled' : ''}>
+                  <option value="">Select subject</option>
+                  ${subjects.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}
+                </select>
+              </div>
+              <div class="focus-config-row">
+                <label>Goal (optional)</label>
+                <select id="timerGoal" style="max-width:260px;">
+                  <option value="">No goal</option>
+                  ${linkableGoals.map((g) => `<option value="${g.id}">${escapeHtml((g.label || g.type) + (g.target ? ' (' + g.target + (g.unit || '') + ')' : ''))}</option>`).join('')}
+                </select>
+              </div>
+              <div class="focus-config-row focus-config-presets">
+                <button class="btn btn-ghost btn-sm preset-btn" data-focus="25" data-break="5" data-rounds="4">25 / 5 ×4</button>
+                <button class="btn btn-ghost btn-sm preset-btn" data-focus="50" data-break="10" data-rounds="2">50 / 10 ×2</button>
+                <button class="btn btn-ghost btn-sm preset-btn" data-focus="15" data-break="3" data-rounds="3">15 / 3 ×3</button>
+              </div>
+            </div>
+            <div class="flex gap mt">
+              <button class="btn btn-primary btn-lg" id="startTimerBtn" ${subjects.length === 0 ? 'disabled' : ''}>Start</button>
+              <button class="btn btn-ghost btn-lg" id="timerHelpBtn" title="How the timer works" aria-label="How the timer works">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              </button>
+            </div>
+          ` : `
+            <div class="flex gap mt">
+              ${running ? `<button class="btn btn-ghost btn-lg" id="pauseTimerBtn">Pause</button>` : ''}
+              ${!running && phase !== PHASE.COMPLETE ? `<button class="btn btn-primary btn-lg" id="resumeTimerBtn">Resume</button>` : ''}
+              ${phase === PHASE.FOCUS ? `<button class="btn btn-ghost btn-lg" id="skipTimerBtn">Skip phase</button>` : ''}
+              ${phase !== PHASE.COMPLETE ? `<button class="btn btn-danger btn-lg" id="stopTimerBtn">Stop</button>` : ''}
+            </div>
+            ${phase === PHASE.COMPLETE ? `<p class="muted mt">Session complete — great work! 🎉</p>` : ''}
+          `}
         </div>
       </div>
     `;
@@ -696,11 +781,58 @@ const app = {
     document.getElementById('pauseTimerBtn')?.addEventListener('click', () => this.pauseTimer());
     document.getElementById('resumeTimerBtn')?.addEventListener('click', () => this.resumeTimer());
     document.getElementById('stopTimerBtn')?.addEventListener('click', () => this.stopTimer());
+    document.getElementById('skipTimerBtn')?.addEventListener('click', () => this.skipTimer());
+    el.querySelectorAll('.preset-btn').forEach((b) => {
+      b.addEventListener('click', () => {
+        eng.configure({
+          focusLength: parseInt(b.dataset.focus, 10) * 60,
+          breakLength: parseInt(b.dataset.break, 10) * 60,
+          rounds: parseInt(b.dataset.rounds, 10),
+        });
+        Storage.setSetting('focusPreset', { focusLength: eng.config.focusLength, breakLength: eng.config.breakLength, rounds: eng.config.rounds });
+        this.renderTimer();
+      });
+    });
+    document.getElementById('timerHelpBtn')?.addEventListener('click', () => this.showTimerHelp());
+    if (!(await Storage.getSetting('timerHelpSeen'))) {
+      await Storage.setSetting('timerHelpSeen', true);
+      this.showTimerHelp();
+    }
+  },
+
+  showTimerHelp() {
+    this.openModal(`
+      <div class="modal-overlay">
+        <div class="modal" style="max-width:560px">
+          <div class="modal-header">
+            <h2>How the Focus Timer works</h2>
+            <button class="btn btn-ghost btn-sm" id="closeTimerHelp">Close</button>
+          </div>
+          <div class="timer-help-body">
+            <p class="muted">The Timer runs on a <strong>Focus Engine</strong> that breaks study time into focus rounds with breaks in between.</p>
+            <ol class="timer-help-list">
+              <li><strong>Set up.</strong> Pick a <em>Subject</em> (required) and optionally a <em>Goal</em> so your focus time counts toward it. Tap a preset — <code>25/5 ×4</code>, <code>50/10 ×2</code>, or <code>15/3 ×3</code> — to choose focus/break length and number of rounds. Your last preset is remembered.</li>
+              <li><strong>Start.</strong> Press <em>Start</em>. The ring fills and counts down. A round counter (<code>Round 1 / 4</code>) shows your progress.</li>
+              <li><strong>Controls.</strong> <em>Pause</em> safely stops the clock (time is recorded by segments, so sleeping or closing the tab won't lose it) and shows <em>Paused</em>. <em>Resume</em> continues. <em>Skip phase</em> ends the current block early. <em>Stop</em> ends the whole session and saves it.</li>
+              <li><strong>Breaks.</strong> Each focus round auto-advances into a <em>Break</em> (ring turns green), then into the next round. After the final round the session is <em>Complete</em>.</li>
+              <li><strong>Persistence.</strong> An in-progress session is restored when you reopen the Timer — phase, elapsed time and round are kept.</li>
+              <li><strong>Where it shows.</strong> The Dashboard timer section shows each session with a badge: green = completed duration, blue = running (Focus/Break + round), grey = paused. Completed focus time feeds your stats and any linked goal.</li>
+            </ol>
+            <p class="subtle">Tip: pause (don't stop) for short interruptions; stop finalizes the session.</p>
+          </div>
+        </div>
+      </div>
+    `);
+    document.getElementById('closeTimerHelp')?.addEventListener('click', () => this.closeModals());
   },
 
   async startTimer() {
     const subjectId = document.getElementById('timerSubject').value;
     if (!subjectId) return this.toast('Please select a subject', 'error');
+    const goalId = document.getElementById('timerGoal')?.value || null;
+    const eng = this.engine;
+
+    eng.configure(await this.loadFocusConfig());
     const session = {
       id: generateId(),
       subjectId,
@@ -711,85 +843,136 @@ const app = {
       description: '',
       paused: false,
       source: 'timer',
+      goalId: goalId || undefined,
       createdAt: new Date().toISOString(),
     };
     await Storage.saveSession(session);
-    this.timerSession = session;
-    this.timerRunning = true;
-    this.timerElapsed = 0;
-    this.timerStartTime = new Date();
-    this.timerInterval = setInterval(() => this.tickTimer(), 1000);
+
+    eng.start({ subjectId, goalId, sessionId: session.id });
+    this.bindEngine();
+    await this.persistEngine();
     this.renderTimer();
+    this.toast('Focus session started', 'success');
   },
 
   async pauseTimer() {
-    clearInterval(this.timerInterval);
-    this.timerInterval = null;
-    this.timerRunning = false;
-    this.timerSession.duration = this.timerElapsed;
-    this.timerSession.paused = true;
-    await Storage.saveSession(this.timerSession);
+    if (!this.engine) return;
+    this.engine.pause();
+    await this.persistEngine();
+    await this.saveSessionDuration();
     this.renderTimer();
   },
 
   async resumeTimer() {
-    if (!this.timerSession) return;
-    this.timerSession.paused = false;
-    this.timerSession.startTime = new Date(Date.now() - this.timerElapsed * 1000).toISOString();
-    await Storage.saveSession(this.timerSession);
-    this.timerRunning = true;
-    this.timerStartTime = new Date(Date.now() - this.timerElapsed * 1000);
-    this.timerInterval = setInterval(() => this.tickTimer(), 1000);
+    if (!this.engine) return;
+    this.engine.resume();
+    await this.persistEngine();
     this.renderTimer();
+  },
+
+  async skipTimer() {
+    if (!this.engine) return;
+    this.engine.skip();
   },
 
   async stopTimer() {
-    clearInterval(this.timerInterval);
-    const endTime = new Date().toISOString();
-    const duration = this.timerElapsed;
-    if (this.timerSession && duration > 0) {
-      this.timerSession.endTime = endTime;
-      this.timerSession.duration = duration;
-      this.timerSession.paused = false;
-      await Storage.saveSession(this.timerSession);
-      this.toast('Session saved', 'success');
-    } else {
-      this.toast('Timer reset', 'success');
-    }
-    this.timerRunning = false;
-    this.timerElapsed = 0;
-    this.timerStartTime = null;
-    this.timerInterval = null;
-    this.timerSession = null;
+    if (!this.engine) return;
+    const focusSeconds = this.engine.totalFocusSeconds();
+    this.engine.stop();
+    await this.saveSessionDuration();
+    await this.persistEngine(true);
+    this.engine = null;
+    if (focusSeconds > 0) this.toast('Session saved', 'success');
+    else this.toast('Timer reset', 'success');
     this.renderTimer();
   },
 
-  tickTimer() {
-    if (this.timerStartTime) {
-      this.timerElapsed = Math.floor((Date.now() - this.timerStartTime.getTime()) / 1000);
-    } else {
-      this.timerElapsed++;
-    }
+  /* ---------- Focus Engine glue ---------- */
+  async loadFocusConfig() {
+    const saved = await Storage.getSetting('focusPreset');
+    return saved ? {
+      focusLength: saved.focusLength,
+      breakLength: saved.breakLength,
+      rounds: saved.rounds,
+    } : {};
+  },
+
+  bindEngine() {
+    const eng = this.engine;
+    eng.onTick = () => this.paintTimer();
+    eng.onPhase = () => {
+      this.paintTimer();
+      this.persistEngine();
+      this.renderTimer();
+    };
+    eng.onComplete = async ({ focusSeconds }) => {
+      await this.saveSessionDuration();
+      await this.contributeToGoal(focusSeconds);
+      await this.persistEngine(true);
+      this.renderTimer();
+    };
+    eng.onError = (e) => this.toast(String(e), 'error');
+  },
+
+  async paintTimer() {
+    const eng = this.engine;
+    if (!eng) return;
     const display = document.getElementById('timerDisplay');
-    if (display) display.textContent = formatDurationClock(this.timerElapsed);
+    const ring = document.querySelector('.focus-ring-fg');
+    const phaseLbl = document.getElementById('focusPhaseLabel');
+    const rounds = document.getElementById('focusRounds');
+    if (display) display.textContent = formatDurationClock(eng.remainingInPhase());
+    if (ring) {
+      const p = Math.round(eng.progress() * 100);
+      ring.style.strokeDashoffset = String(628 - (628 * p) / 100);
+    }
+    if (phaseLbl) phaseLbl.textContent = eng.phase === PHASE.BREAK ? 'Break' : (eng.phase === PHASE.COMPLETE ? 'Complete' : 'Focus');
+    if (rounds && eng.config.rounds > 1) {
+      const running = eng.isRunning() && eng.phase !== PHASE.IDLE && eng.phase !== PHASE.COMPLETE;
+      rounds.textContent = `Round ${Math.min(eng.round + (running ? 1 : 0), eng.config.rounds)} / ${eng.config.rounds}`;
+    }
+  },
+
+  async saveSessionDuration() {
+    const eng = this.engine;
+    if (!eng || !eng.sessionId) return;
+    const session = await Storage.getSession(eng.sessionId);
+    if (!session) return;
+    const duration = eng.totalFocusSeconds();
+    // End the session record when it's finished (complete) or explicitly stopped.
+    if (eng.phase === PHASE.COMPLETE || eng.phase === PHASE.IDLE) {
+      session.endTime = new Date().toISOString();
+    }
+    session.duration = duration;
+    session.paused = eng.phase === PHASE.IDLE;
+    await Storage.saveSession(session);
+  },
+
+  async contributeToGoal(focusSeconds) {
+    const eng = this.engine;
+    if (!eng || !eng.goalId || !focusSeconds) return;
+    const goal = await Storage.getGoal(eng.goalId);
+    if (!goal) return;
+    goal.progress = (goal.progress || 0) + focusSeconds;
+    await Storage.saveGoal(goal);
+    this.toast(`Added ${formatDuration(focusSeconds)} to goal`, 'success');
+  },
+
+  async persistEngine(closed = false) {
+    if (!this.engine) return;
+    const data = this.engine.serialize();
+    data.closed = closed;
+    await Storage.setSetting('focusEngine', data);
   },
 
   async restoreTimerState() {
-    const sessions = await Storage.getAllSessions();
-    const inProgress = sessions.find((s) => s.endTime === null && s.source === 'timer');
-    if (!inProgress) return;
-    this.timerSession = inProgress;
-    this.timerElapsed = inProgress.duration || 0;
-    if (!inProgress.paused) {
-      const start = new Date(inProgress.startTime).getTime();
-      this.timerElapsed += Math.max(0, Math.floor((Date.now() - start) / 1000));
-      this.timerRunning = true;
-      this.timerStartTime = new Date();
-      this.timerInterval = setInterval(() => this.tickTimer(), 1000);
-    } else {
-      this.timerRunning = false;
-      this.timerStartTime = null;
-    }
+    const data = await Storage.getSetting('focusEngine');
+    if (!data || data.closed) return;
+    const eng = FocusEngine.deserialize(data);
+    if (eng.phase === PHASE.IDLE || eng.phase === PHASE.COMPLETE) return;
+    this.engine = eng;
+    this.bindEngine();
+    eng.rehydrate();
   },
 
   noteCardHTML(n, subjects) {

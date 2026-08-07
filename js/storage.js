@@ -126,6 +126,7 @@ class Storage {
 
   /* ---------- Goals ---------- */
   getAllGoals() { return this.getAll('goals'); }
+  getGoal(id) { return this.get('goals', id); }
   saveGoal(g) { return this.put('goals', g); }
   deleteGoal(id) { return this.delete('goals', id); }
 
