@@ -213,13 +213,36 @@ const app = {
     document.querySelectorAll('.modal-overlay').forEach((m) => m.remove());
   },
 
-  toast(message, type = 'success') {
+  toast(message, type = 'success', duration = 3000) {
     const container = document.getElementById('toastContainer');
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     toast.textContent = message;
     container.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
+    setTimeout(() => toast.remove(), duration);
+  },
+
+  congratsOverlay(message) {
+    const imgs = [
+      'assets/congrats_illustration/Being-Happy-2--Streamline-Barcelona.png',
+      'assets/congrats_illustration/Graduation-1--Streamline-Barcelona.png',
+      'assets/congrats_illustration/Showing-Pride-1--Streamline-Barcelona.png',
+    ];
+    const img = imgs[Math.floor(Math.random() * imgs.length)];
+    this.openModal(`
+      <div class="modal-overlay congrats-overlay">
+        <div class="congrats-card">
+          <img class="congrats-illo" src="${img}" alt="">
+          <h2>Goal reached! 🎉</h2>
+          <p class="muted">${escapeHtml(message)}</p>
+          <button class="btn btn-primary" id="congratsClose">Awesome!</button>
+        </div>
+      </div>
+    `);
+    const overlay = document.querySelector('.congrats-overlay');
+    const close = () => overlay?.remove();
+    overlay?.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    document.getElementById('congratsClose')?.addEventListener('click', close);
   },
 
   async renderDashboard() {
@@ -631,6 +654,12 @@ const app = {
     ];
     const ICON_BASE = 'assets/subject_illustrations/';
 
+    const goalTotalMin = data.weeklyGoal ? Math.round(data.weeklyGoal / 60) : 0;
+    const goalHours = Math.floor(goalTotalMin / 60);
+    const goalMins = goalTotalMin % 60;
+    const previewIcon = data.icon || 'Education-Graduation-01--Streamline-Bangalore.png';
+    const previewColor = data.color || PRESET_COLORS[0];
+
     this.openModal(`
       <div class="modal-overlay">
         <div class="modal">
@@ -645,31 +674,57 @@ const app = {
               <label>Description</label>
               <textarea id="subjectDesc">${data.description || ''}</textarea>
             </div>
+
+            <div class="subject-form-preview">
+              <div class="card subject-card" id="subjectPreview" style="--subj: ${escapeHtml(previewColor)}">
+                <div class="subject-card-top">
+                  <div class="subject-avatar"><img id="previewIconImg" src="${ICON_BASE}${previewIcon}" alt=""></div>
+                </div>
+                <h3 class="truncate" id="previewName">${escapeHtml(data.name || 'Subject name')}</h3>
+                <p class="muted text-sm subject-desc" id="previewDesc">${escapeHtml(data.description || 'No description')}</p>
+              </div>
+            </div>
+
             <div class="form-group">
               <label>Icon</label>
               <div class="icon-grid mt">
                 ${icons.map((ic) => `
-                  <div class="icon-swatch ${data.icon === ic ? 'selected' : ''}" data-icon="${ic}" title="${ic}">
+                  <div class="icon-swatch ${previewIcon === ic ? 'selected' : ''}" data-icon="${ic}" title="${ic}">
                     <img src="${ICON_BASE}${ic}" alt="">
                   </div>
                 `).join('')}
               </div>
-              <input type="hidden" id="subjectIcon" value="${data.icon || ''}">
+              <input type="hidden" id="subjectIcon" value="${previewIcon}">
             </div>
+
             <div class="form-group">
-              <label>Weekly goal (minutes)</label>
-              <input type="number" id="subjectGoal" min="0" step="15" value="${data.weeklyGoal ? Math.round(data.weeklyGoal / 60) : ''}" placeholder="e.g. 120 for 2h">
-              <span class="muted text-xs">Leave 0 for no goal.</span>
+              <label>Weekly goal</label>
+              <div class="goal-inputs">
+                <div class="form-group">
+                  <label class="text-xs muted">Hours</label>
+                  <input type="number" id="subjectGoalH" min="0" step="1" value="${goalHours}" placeholder="0">
+                </div>
+                <div class="form-group">
+                  <label class="text-xs muted">Minutes</label>
+                  <input type="number" id="subjectGoalM" min="0" max="59" step="5" value="${goalMins}" placeholder="0">
+                </div>
+              </div>
+              <span class="muted text-xs">Leave both at 0 for no goal.</span>
             </div>
+
             <div class="form-group">
               <label>Color</label>
-              <div class="flex gap-sm mt">
+              <div class="color-picker mt">
                 ${PRESET_COLORS.map((c) => `
-                  <div class="color-swatch ${data.color === c ? 'selected' : ''}" data-color="${c}" style="background: ${c}"></div>
+                  <div class="color-swatch ${previewColor === c ? 'selected' : ''}" data-color="${c}" style="background: ${c}"></div>
                 `).join('')}
+                <div class="color-swatch custom-swatch ${!PRESET_COLORS.includes(previewColor) ? 'selected' : ''}" title="Custom color">
+                  <input type="color" id="subjectCustomColor" value="${previewColor}">
+                </div>
               </div>
-              <input type="hidden" id="subjectColor" value="${data.color}">
+              <input type="hidden" id="subjectColor" value="${previewColor}">
             </div>
+
             <div class="flex justify-end gap mt">
               <button type="button" class="btn btn-ghost" id="cancelModal">Cancel</button>
               <button type="submit" class="btn btn-primary">Save</button>
@@ -679,18 +734,44 @@ const app = {
       </div>
     `);
 
-    let selectedColor = data.color;
-    let selectedIcon = data.icon || '';
+    let selectedColor = previewColor;
+    let selectedIcon = previewIcon;
     const colorInput = document.getElementById('subjectColor');
     const iconInput = document.getElementById('subjectIcon');
+    const preview = document.getElementById('subjectPreview');
+    const previewName = document.getElementById('previewName');
+    const previewDesc = document.getElementById('previewDesc');
+    const previewIconImg = document.getElementById('previewIconImg');
 
-    document.querySelectorAll('.color-swatch').forEach((swatch) => {
+    const syncPreview = () => {
+      preview.style.setProperty('--subj', selectedColor);
+      previewName.textContent = document.getElementById('subjectName').value.trim() || 'Subject name';
+      previewDesc.textContent = document.getElementById('subjectDesc').value.trim() || 'No description';
+      previewIconImg.src = ICON_BASE + selectedIcon;
+    };
+
+    document.getElementById('subjectName').addEventListener('input', syncPreview);
+    document.getElementById('subjectDesc').addEventListener('input', syncPreview);
+
+    document.querySelectorAll('.color-swatch:not(.custom-swatch)').forEach((swatch) => {
       swatch.addEventListener('click', () => {
         document.querySelectorAll('.color-swatch').forEach((s) => s.classList.remove('selected'));
         swatch.classList.add('selected');
         selectedColor = swatch.dataset.color;
         colorInput.value = selectedColor;
+        syncPreview();
       });
+    });
+
+    const customInput = document.getElementById('subjectCustomColor');
+    const customSwatch = customInput.closest('.color-swatch');
+    customInput.addEventListener('input', () => {
+      document.querySelectorAll('.color-swatch').forEach((s) => s.classList.remove('selected'));
+      customSwatch.classList.add('selected');
+      selectedColor = customInput.value;
+      colorInput.value = selectedColor;
+      customSwatch.style.background = selectedColor;
+      syncPreview();
     });
 
     document.querySelectorAll('.icon-swatch').forEach((swatch) => {
@@ -699,6 +780,7 @@ const app = {
         swatch.classList.add('selected');
         selectedIcon = swatch.dataset.icon;
         iconInput.value = selectedIcon;
+        syncPreview();
       });
     });
 
@@ -709,7 +791,9 @@ const app = {
       const name = document.getElementById('subjectName').value.trim();
       const desc = document.getElementById('subjectDesc').value.trim();
       const color = colorInput.value;
-      const goalMin = parseInt(document.getElementById('subjectGoal').value, 10) || 0;
+      const h = parseInt(document.getElementById('subjectGoalH').value, 10) || 0;
+      const m = parseInt(document.getElementById('subjectGoalM').value, 10) || 0;
+      const goalMin = h * 60 + m;
       if (!name) return this.toast('Name is required', 'error');
       const existing = id ? subjects.find((s) => s.id === id) : null;
       const subj = { ...existing, id, name, description: desc, color, icon: iconInput.value, weeklyGoal: goalMin * 60 };
@@ -870,6 +954,7 @@ const app = {
       const existing = id ? (await Storage.getSession(id)) : null;
       const sess = { ...existing, id, subjectId, date, startTime, endTime, duration, description: desc, paused: false, source: existing?.source || 'planner' };
       await Storage.saveSession(sess);
+      this.checkGoalCelebrations();
       this.toast(isEdit ? 'Session updated' : 'Session added', 'success');
       this.closeModals();
       this.renderPlanner(new Date(date + 'T12:00:00'));
@@ -1147,6 +1232,52 @@ const app = {
     session.duration = duration;
     session.paused = eng.phase === PHASE.IDLE;
     await Storage.saveSession(session);
+    this.checkGoalCelebrations();
+  },
+
+  async checkGoalCelebrations() {
+    const [subjects, sessions, goals] = await Promise.all([
+      Storage.getAllSubjects(), Storage.getAllSessions(), Storage.getAllGoals(),
+    ]);
+    const weekDates = getWeekDates();
+    const weekSet = new Set(weekDates);
+    const today = getToday();
+
+    const flags = JSON.parse(localStorage.getItem('goalCelebrations') || '{}');
+    const weekKey = weekDates[0];
+    let changed = false;
+
+    for (const s of subjects) {
+      const goal = Number(s.weeklyGoal) || 0;
+      if (goal <= 0) continue;
+      const weekTotal = sessions
+        .filter((x) => x.subjectId === s.id && x.date && weekSet.has(x.date))
+        .reduce((sum, x) => sum + (x.duration || 0), 0);
+      if (weekTotal < goal) continue;
+      const key = `subj_${s.id}_${weekKey}`;
+      if (flags[key]) continue;
+      flags[key] = true;
+      changed = true;
+      this.congratsOverlay(`${s.name}: weekly goal reached!`);
+    }
+
+    const dailyGoal = goals.find((g) => g.type === 'daily' && g.active);
+    if (dailyGoal && dailyGoal.target > 0) {
+      const dailyTarget = dailyGoal.target * 3600;
+      const todayTotal = sessions
+        .filter((x) => x.date === today)
+        .reduce((sum, x) => sum + (x.duration || 0), 0);
+      if (todayTotal >= dailyTarget) {
+        const key = `daily_${today}`;
+        if (!flags[key]) {
+          flags[key] = true;
+          changed = true;
+          this.congratsOverlay('Daily study goal reached — amazing work!');
+        }
+      }
+    }
+
+    if (changed) localStorage.setItem('goalCelebrations', JSON.stringify(flags));
   },
 
   async contributeToGoal(focusSeconds) {

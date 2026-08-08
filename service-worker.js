@@ -49,6 +49,9 @@ const PRECACHE = [
   ...ILLUSTRATIONS.map((f) => `./assets/illustrations/${f}`),
   ...SUBJECT_ILLUSTRATIONS.map((f) => `./assets/subject_illustrations/${f}`),
   './assets/icons/favicon-16x16.png',
+  './assets/congrats_illustration/Being-Happy-2--Streamline-Barcelona.png',
+  './assets/congrats_illustration/Graduation-1--Streamline-Barcelona.png',
+  './assets/congrats_illustration/Showing-Pride-1--Streamline-Barcelona.png',
   './assets/icons/favicon-32x32.png',
   './assets/icons/favicon.ico',
   './assets/icons/apple-touch-icon.png',
@@ -85,6 +88,7 @@ self.addEventListener('activate', (e) => {
 function isIllustration(url) {
   return url.pathname.includes('/assets/illustrations/') ||
          url.pathname.includes('/assets/subject_illustrations/') ||
+         url.pathname.includes('/assets/congrats_illustration/') ||
          url.pathname.includes('/assets/icons/');
 }
 
