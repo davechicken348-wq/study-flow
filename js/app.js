@@ -401,51 +401,62 @@ const app = {
   },
 
   async renderSubjects() {
-    const subjects = await Storage.getAllSubjects();
-    const sessions = await Storage.getAllSessions();
+    const [subjects, sessions] = await Promise.all([
+      Storage.getAllSubjects(), Storage.getAllSessions(),
+    ]);
     const el = document.getElementById('pageContent');
+
+    const weekDates = getWeekDates();
+    const weekSet = new Set(weekDates);
+    const active = this.orderSubjects(subjects.filter((s) => !s.archived));
+    const archived = this.orderSubjects(subjects.filter((s) => s.archived));
 
     el.innerHTML = `
       <div class="page-header flex justify-between items-center page-header-inline">
         <h1>Subjects</h1>
-        <button class="btn btn-primary btn-sm" id="addSubjectBtn" aria-label="Add subject">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add subject
-        </button>
+        <div class="flex gap-xs items-center">
+          ${archived.length > 0 ? `<span class="subjects-archived-badge" title="${archived.length} archived subject${archived.length > 1 ? 's' : ''}">${archived.length} archived</span>` : ''}
+          <button class="btn btn-primary btn-sm" id="addSubjectBtn" aria-label="Add subject">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add subject
+          </button>
+        </div>
       </div>
-      ${subjects.length === 0 ? `
+      ${(active.length === 0 && archived.length === 0) ? `
         <div class="empty-state card mt empty-state-lg">
           <img class="empty-illo" src="assets/illustrations/Education-Online-Learning-02--Streamline-Bangalore.png" alt="">
           <h3>No subjects yet</h3>
           <p>Add your first subject to start organising your study sessions.</p>
         </div>` : `
-        <div class="grid grid-2 gap mt">
-          ${subjects.map((s) => {
-            const count = sessions.filter((x) => x.subjectId === s.id).length;
-            const total = sessions.filter((x) => x.subjectId === s.id).reduce((sum, x) => sum + (x.duration || 0), 0);
-            return `
-          <div class="card subject-card" style="--subj: ${escapeHtml(s.color)}">
-            <div class="subject-card-top">
-              <div class="subject-avatar"><img src="assets/illustrations/Laptop-Workspace-3--Streamline-Ux.png" alt="${escapeHtml(s.name || 'Subject')}"></div>
-              <div class="flex gap-xs">
-                <button class="btn btn-ghost btn-sm" data-action="edit-subject" data-id="${s.id}" aria-label="Edit">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
-                </button>
-                <button class="btn btn-danger btn-sm" data-action="delete-subject" data-id="${s.id}" aria-label="Delete">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                </button>
-              </div>
-            </div>
-            <h3 class="truncate">${escapeHtml(s.name)}</h3>
-            <p class="muted text-sm subject-desc">${escapeHtml(s.description || 'No description')}</p>
-            <div class="subject-meta">
-              <span class="subject-chip">${count} sessions</span>
-              <span class="subject-chip">${formatDuration(total)}</span>
-            </div>
-          </div>
-            `;
-          }).join('')}
+        <div class="subjects-toolbar mt flex items-center justify-between" id="subjectsToolbar">
+          <p class="muted text-sm" id="subjectsOrderHint">${active.length === 0 ? 'No active subjects — everything is archived.' : 'Drag cards to reorder. Pinned subjects stay on top.'}</p>
+          <button class="btn btn-ghost btn-sm" id="toggleArchivedBtn" aria-pressed="false">${archived.length > 0 ? `Show archived (${archived.length})` : 'Show archived'}</button>
         </div>
+        ${active.length > 0 ? `
+          <div class="grid grid-2 gap mt" id="subjectsGrid">
+            ${active.map((s) => this.subjectCardHtml(s, sessions, weekSet)).join('')}
+          </div>
+        ` : `
+          <div class="empty-state card mt">
+            <img class="empty-illo" src="assets/illustrations/Drawing-Painting--Streamline-Bangalore.png" alt="">
+            <h3>No active subjects</h3>
+            <p>Everything is archived. Use “Show archived” below to restore one.</p>
+          </div>
+        `}
+          <div id="archivedWrap" class="hidden mt">
+            <h3 class="muted text-sm" style="margin:24px 0 12px">Archived</h3>
+            ${archived.length > 0 ? `
+              <div class="grid grid-2 gap">
+                ${archived.map((s) => this.subjectCardHtml(s, sessions, weekSet)).join('')}
+              </div>
+            ` : `
+              <div class="empty-state card">
+                <img class="empty-illo" src="assets/illustrations/No-Drafts-01--Streamline-Bangalore.png" alt="">
+                <h3>No archived subjects</h3>
+                <p>Archive a subject to tuck it away without losing its sessions and notes.</p>
+              </div>
+            `}
+          </div>
       `}
     `;
 
@@ -456,12 +467,169 @@ const app = {
     el.querySelectorAll('[data-action="delete-subject"]').forEach((b) => {
       b.addEventListener('click', () => this.deleteSubject(b.dataset.id));
     });
+    el.querySelectorAll('[data-action="pin-subject"]').forEach((b) => {
+      b.addEventListener('click', () => this.togglePinSubject(b.dataset.id));
+    });
+    el.querySelectorAll('[data-action="archive-subject"]').forEach((b) => {
+      b.addEventListener('click', () => this.toggleArchiveSubject(b.dataset.id));
+    });
+    this.initSubjectDrag(el);
+    const toggleArchived = document.getElementById('toggleArchivedBtn');
+    toggleArchived?.addEventListener('click', () => {
+      const wrap = document.getElementById('archivedWrap');
+      const hidden = wrap.classList.toggle('hidden');
+      toggleArchived.setAttribute('aria-pressed', String(!hidden));
+      toggleArchived.textContent = hidden ? 'Show archived' : 'Hide archived';
+    });
+  },
+
+  orderSubjects(subjects) {
+    const active = subjects.filter((s) => !s.archived);
+    const archived = subjects.filter((s) => s.archived);
+    const sortActive = (a, b) => {
+      if (!!b.pinned !== !!a.pinned) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+      const ao = typeof a.order === 'number' ? a.order : 9999;
+      const bo = typeof b.order === 'number' ? b.order : 9999;
+      if (ao !== bo) return ao - bo;
+      return (a.createdAt || '').localeCompare(b.createdAt || '');
+    };
+    return [...active.sort(sortActive), ...archived.sort(sortActive)];
+  },
+
+  subjectCardHtml(s, sessions, weekSet) {
+    const count = sessions.filter((x) => x.subjectId === s.id).length;
+    const total = sessions.filter((x) => x.subjectId === s.id).reduce((sum, x) => sum + (x.duration || 0), 0);
+    const weekTotal = sessions
+      .filter((x) => x.subjectId === s.id && x.date && weekSet.has(x.date))
+      .reduce((sum, x) => sum + (x.duration || 0), 0);
+    const goal = Number(s.weeklyGoal) || 0;
+    const pct = goal > 0 ? Math.min(100, Math.round((weekTotal / goal) * 100)) : 0;
+    const goalClass = pct >= 100 ? 'success' : (pct >= 60 ? '' : 'warning');
+
+    const iconSrc = s.icon
+      ? `assets/subject_illustrations/${s.icon}`
+      : 'assets/subject_illustrations/Education-Graduation-01--Streamline-Bangalore.png';
+
+    return `
+      <div class="card subject-card ${s.archived ? 'is-archived' : ''} ${s.pinned ? 'is-pinned' : ''}" style="--subj: ${escapeHtml(s.color)}" draggable="${!s.archived}" data-id="${s.id}">
+        <div class="subject-card-top">
+          <div class="subject-avatar"><img src="${iconSrc}" alt="${escapeHtml(s.name || 'Subject')}"></div>
+          <div class="flex gap-xs">
+            <button class="btn btn-ghost btn-sm" data-action="pin-subject" data-id="${s.id}" aria-label="${s.pinned ? 'Unpin' : 'Pin'}" title="${s.pinned ? 'Unpin' : 'Pin'}">
+              <svg viewBox="0 0 24 24" fill="${s.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+            </button>
+            <button class="btn btn-ghost btn-sm" data-action="edit-subject" data-id="${s.id}" aria-label="Edit">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
+            </button>
+            <button class="btn btn-ghost btn-sm" data-action="archive-subject" data-id="${s.id}" aria-label="${s.archived ? 'Restore' : 'Archive'}" title="${s.archived ? 'Restore' : 'Archive'}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+            </button>
+            <button class="btn btn-danger btn-sm" data-action="delete-subject" data-id="${s.id}" aria-label="Delete">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            </button>
+          </div>
+        </div>
+        <h3 class="truncate">${escapeHtml(s.name)}</h3>
+        <p class="muted text-sm subject-desc">${escapeHtml(s.description || 'No description')}</p>
+        <div class="subject-meta">
+          <span class="subject-chip">${count} sessions</span>
+          <span class="subject-chip">${formatDuration(total)}</span>
+        </div>
+        ${goal > 0 ? `
+        <div class="subject-goal mt">
+          <div class="flex justify-between text-xs muted" style="margin-bottom:6px">
+            <span>Weekly goal</span>
+            <span>${formatDuration(weekTotal)} / ${formatDuration(goal)}</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill ${goalClass}" style="width:${pct}%"></div></div>
+        </div>` : ''}
+      </div>
+    `;
+  },
+
+  initSubjectDrag(root) {
+    const grid = root.querySelector('#subjectsGrid');
+    if (!grid) return;
+    let dragId = null;
+    grid.querySelectorAll('.subject-card').forEach((card) => {
+      card.addEventListener('dragstart', (e) => {
+        dragId = card.dataset.id;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        dragId = null;
+      });
+      card.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (!dragId || card.dataset.id === dragId) return;
+        const dragging = grid.querySelector('.dragging');
+        if (!dragging) return;
+        const rect = card.getBoundingClientRect();
+        const after = (e.clientY - rect.top) > rect.height / 2;
+        grid.insertBefore(dragging, after ? card.nextSibling : card);
+      });
+      card.addEventListener('drop', (e) => {
+        e.preventDefault();
+        this.persistSubjectOrder(grid);
+      });
+    });
+  },
+
+  async persistSubjectOrder(grid) {
+    const active = Array.from(grid.querySelectorAll('.subject-card'));
+    const ids = active.map((c) => c.dataset.id);
+    const all = await Storage.getAllSubjects();
+    ids.forEach((id, i) => {
+      const s = all.find((x) => x.id === id);
+      if (s) s.order = i;
+    });
+    await Promise.all(all.map((s) => Storage.saveSubject(s)));
+  },
+
+  async togglePinSubject(id) {
+    const s = await Storage.getSubject(id);
+    if (!s) return;
+    s.pinned = !s.pinned;
+    await Storage.saveSubject(s);
+    this.toast(s.pinned ? 'Subject pinned' : 'Subject unpinned', 'success');
+    this.renderSubjects();
+  },
+
+  async toggleArchiveSubject(id) {
+    const s = await Storage.getSubject(id);
+    if (!s) return;
+    s.archived = !s.archived;
+    await Storage.saveSubject(s);
+    this.toast(s.archived ? 'Subject archived' : 'Subject restored', 'success');
+    this.renderSubjects();
   },
 
   async showSubjectForm(subject) {
     const subjects = await Storage.getAllSubjects();
     const isEdit = !!subject;
-    const data = subject || { id: generateId(), name: '', description: '', color: PRESET_COLORS[0] };
+    const data = subject || { id: generateId(), name: '', description: '', color: PRESET_COLORS[0], icon: '', weeklyGoal: 0 };
+
+    const icons = [
+      'Education-Graduation-01--Streamline-Bangalore.png',
+      'Education-Student-Active-01--Streamline-Bangalore.png',
+      'Education-Online-Exams-Tests-01--Streamline-Bangalore.png',
+      'Astronaut--Streamline-Bangalore.png',
+      'Development-Code-Learning-01--Streamline-Bangalore.png',
+      'Qa-Engineer-2--Streamline-Bangalore.png',
+      'Design-Design-Thinking-01--Streamline-Bangalore.png',
+      'Content-Creation-2--Streamline-Bangalore.png',
+      'Content-Creation-Writing--Streamline-Bangalore.png',
+      'Business-Go-To-Market-Strategy-01--Streamline-Bangalore.png',
+      'Collaboration--Streamline-Bangalore.png',
+      'Working-Together--Streamline-Bangalore.png',
+      'Sharing-Ideas-2--Streamline-Bangalore.png',
+      'Users-People-Trophy-Awards-01--Streamline-Bangalore.png',
+      'Be-Patient--Streamline-Bangalore.png',
+      'Users-People-Protect-Privacy-01--Streamline-Bangalore.png',
+    ];
+    const ICON_BASE = 'assets/subject_illustrations/';
 
     this.openModal(`
       <div class="modal-overlay">
@@ -476,6 +644,22 @@ const app = {
             <div class="form-group">
               <label>Description</label>
               <textarea id="subjectDesc">${data.description || ''}</textarea>
+            </div>
+            <div class="form-group">
+              <label>Icon</label>
+              <div class="icon-grid mt">
+                ${icons.map((ic) => `
+                  <div class="icon-swatch ${data.icon === ic ? 'selected' : ''}" data-icon="${ic}" title="${ic}">
+                    <img src="${ICON_BASE}${ic}" alt="">
+                  </div>
+                `).join('')}
+              </div>
+              <input type="hidden" id="subjectIcon" value="${data.icon || ''}">
+            </div>
+            <div class="form-group">
+              <label>Weekly goal (minutes)</label>
+              <input type="number" id="subjectGoal" min="0" step="15" value="${data.weeklyGoal ? Math.round(data.weeklyGoal / 60) : ''}" placeholder="e.g. 120 for 2h">
+              <span class="muted text-xs">Leave 0 for no goal.</span>
             </div>
             <div class="form-group">
               <label>Color</label>
@@ -496,7 +680,9 @@ const app = {
     `);
 
     let selectedColor = data.color;
+    let selectedIcon = data.icon || '';
     const colorInput = document.getElementById('subjectColor');
+    const iconInput = document.getElementById('subjectIcon');
 
     document.querySelectorAll('.color-swatch').forEach((swatch) => {
       swatch.addEventListener('click', () => {
@@ -507,6 +693,15 @@ const app = {
       });
     });
 
+    document.querySelectorAll('.icon-swatch').forEach((swatch) => {
+      swatch.addEventListener('click', () => {
+        document.querySelectorAll('.icon-swatch').forEach((s) => s.classList.remove('selected'));
+        swatch.classList.add('selected');
+        selectedIcon = swatch.dataset.icon;
+        iconInput.value = selectedIcon;
+      });
+    });
+
     document.getElementById('cancelModal').addEventListener('click', () => this.closeModals());
     document.getElementById('subjectForm').addEventListener('submit', (e) => {
       e.preventDefault();
@@ -514,10 +709,16 @@ const app = {
       const name = document.getElementById('subjectName').value.trim();
       const desc = document.getElementById('subjectDesc').value.trim();
       const color = colorInput.value;
+      const goalMin = parseInt(document.getElementById('subjectGoal').value, 10) || 0;
       if (!name) return this.toast('Name is required', 'error');
       const existing = id ? subjects.find((s) => s.id === id) : null;
-      const subj = { ...existing, id, name, description: desc, color };
-      if (!subj.createdAt && existing) subj.createdAt = existing.createdAt;
+      const subj = { ...existing, id, name, description: desc, color, icon: iconInput.value, weeklyGoal: goalMin * 60 };
+      if (existing) {
+        if (!subj.createdAt) subj.createdAt = existing.createdAt;
+        if (typeof subj.order !== 'number') subj.order = existing.order;
+        subj.pinned = !!existing.pinned;
+        subj.archived = !!existing.archived;
+      }
       Storage.saveSubject(subj).then(() => {
         this.toast(isEdit ? 'Subject updated' : 'Subject added', 'success');
         this.closeModals();

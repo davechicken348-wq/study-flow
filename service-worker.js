@@ -1,4 +1,4 @@
-const CACHE = 'studyflow-v4';
+const CACHE = 'studyflow-v6';
 const VERSIONED = CACHE;
 const ILLUSTRATIONS = [
   'Bills-Payment-01--Streamline-Bangalore.png',
@@ -16,7 +16,26 @@ const ILLUSTRATIONS = [
   'Pin-Post-It-Note--Streamline-Ux.png',
   'Robot-Learning-From-Human--Streamline-Bangalore.png',
   'Start-Up-Team--Streamline-Bangalore.png',
+  'Time-In-For-Work--Streamline-Bangalore.png',
   'Work-Being-Creative-01--Streamline-Bangalore.png',
+];
+const SUBJECT_ILLUSTRATIONS = [
+  'Astronaut--Streamline-Bangalore.png',
+  'Be-Patient--Streamline-Bangalore.png',
+  'Business-Go-To-Market-Strategy-01--Streamline-Bangalore.png',
+  'Collaboration--Streamline-Bangalore.png',
+  'Content-Creation-2--Streamline-Bangalore.png',
+  'Content-Creation-Writing--Streamline-Bangalore.png',
+  'Design-Design-Thinking-01--Streamline-Bangalore.png',
+  'Education-Graduation-01--Streamline-Bangalore.png',
+  'Education-Online-Exams-Tests-01--Streamline-Bangalore.png',
+  'Education-Student-Active-01--Streamline-Bangalore.png',
+  'Qa-Engineer-2--Streamline-Bangalore.png',
+  'Sharing-Ideas-2--Streamline-Bangalore.png',
+  'Users-People-Protect-Privacy-01--Streamline-Bangalore.png',
+  'Users-People-Trophy-Awards-01--Streamline-Bangalore.png',
+  'Work-Being-Creative-01--Streamline-Bangalore.png',
+  'Working-Together--Streamline-Bangalore.png',
 ];
 const PRECACHE = [
   './',
@@ -28,10 +47,29 @@ const PRECACHE = [
   './manifest.json',
   './assets/vendor/chart.umd.min.js',
   ...ILLUSTRATIONS.map((f) => `./assets/illustrations/${f}`),
+  ...SUBJECT_ILLUSTRATIONS.map((f) => `./assets/subject_illustrations/${f}`),
+  './assets/icons/favicon-16x16.png',
+  './assets/icons/favicon-32x32.png',
+  './assets/icons/favicon.ico',
+  './assets/icons/apple-touch-icon.png',
+  './assets/icons/android-chrome-192x192.png',
+  './assets/icons/android-chrome-512x512.png',
 ];
 
+// Cache each precache entry individually so a single 404 doesn't abort the
+// whole install (which would leave the offline cache empty).
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(PRECACHE)));
+  e.waitUntil(
+    caches.open(CACHE).then(async (c) => {
+      await Promise.allSettled(
+        PRECACHE.map((url) =>
+          fetch(url)
+            .then((res) => { if (res.status === 200) return c.put(url, res); })
+            .catch(() => {})
+        )
+      );
+    })
+  );
   self.skipWaiting();
 });
 
@@ -44,8 +82,34 @@ self.addEventListener('activate', (e) => {
   self.clients.claim();
 });
 
+function isIllustration(url) {
+  return url.pathname.includes('/assets/illustrations/') ||
+         url.pathname.includes('/assets/subject_illustrations/') ||
+         url.pathname.includes('/assets/icons/');
+}
+
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  if (url.origin !== self.location.origin) return;
+
+  // Illustrations/icons: serve from cache first (offline-safe), and refresh in
+  // the background. Anything not yet cached is fetched and stored for next time.
+  if (isIllustration(url)) {
+    e.respondWith(
+      caches.match(e.request).then((cached) => {
+        const network = fetch(e.request).then((res) => {
+          if (res.status === 200) {
+            caches.open(CACHE).then((c) => c.put(e.request, res.clone()));
+          }
+          return res;
+        }).catch(() => cached);
+        return cached || network;
+      })
+    );
+    return;
+  }
+
   e.respondWith(
     caches.match(e.request).then((cached) => {
       const fresh = fetch(e.request).then((res) => {
