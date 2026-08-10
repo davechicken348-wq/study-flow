@@ -1,9 +1,12 @@
 // @ts-nocheck
-import { generateId, getToday, formatDate, formatTime, formatDuration, formatDurationClock, getWeekDates, getStartOfWeek, escapeHtml, debounce, parseMarkdown } from './utils.js';
+import { generateId, getToday, localDateOf, formatDate, formatTime, formatDuration, formatDurationClock, getWeekDates, getStartOfWeek, escapeHtml, debounce, parseMarkdown } from './utils.js';
 import Storage from './storage.js';
 import SQ from './smart_questioning.js';
 import { groupNotes, groupNotesByLens } from './affinityWeaving.js';
 import { FocusEngine, PHASE, FOCUS_DEFAULTS } from './focusEngine.js';
+import Settings from './settings.js';
+import { ensureDailyQuest, isDailyQuest, buildDailyQuest } from './questSeed.js';
+import { playPhaseSound, unlockAudio } from './sounds.js';
 
 function attachQuestionToggle(container) {
   if (!container) return;
@@ -15,6 +18,8 @@ function attachQuestionToggle(container) {
     if (inline) inline.classList.toggle('collapsed');
   });
 }
+
+const APP_VERSION = '2.0.0';
 
 function attachQuestionTooltip({ container, tooltipEl, questions }) {
   if (document.body.contains(tooltipEl)) {
@@ -64,14 +69,55 @@ const PRESET_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#
 
 const app = {
   engine: null,
+  activeSettingsTab: null,
 
   async init() {
-    this.initTheme();
+    await Settings.load();
+    await this.ensureDailyQuest();
     this.initImageFallback();
     this.setupListeners();
+    this.bindSettingsReactivity();
     await this.restoreTimerState();
     this.initNotifications();
+    this._currentPage = window.location.hash.slice(1) || 'dashboard';
     this.handleRoute();
+  },
+
+  bindSettingsReactivity() {
+    // Theme can change out from under us if the OS preference flips while
+    // the app is set to "system".
+    if (window.matchMedia) {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const handler = () => { if (Settings.get('theme') === 'system') Settings.set('theme', 'system'); };
+      if (mq.addEventListener) mq.addEventListener('change', handler);
+      else if (mq.addListener) mq.addListener(handler);
+    }
+    Settings.subscribe('noteOfflineMath', (on) => {
+      if (on && 'caches' in window) {
+        caches.open('studyflow-v6').then((c) => c.addAll([
+          'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css',
+          'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js',
+          'https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap',
+        ]).catch(() => {})).catch(() => {});
+        this.toast('Math & fonts cached for offline use', 'success');
+      }
+    });
+    // Keep notification prefs mirrored into IndexedDB so the service worker
+    // (which only has IndexedDB, not the app's localStorage settings blob)
+    // reads the current values.
+    const mirrorNotif = () => {
+      const mirror = {
+        notificationsEnabled: Settings.get('notificationsEnabled') ? 'true' : 'false',
+        notifySessionReminders: Settings.get('notifySessionReminders') ? 'true' : 'false',
+        notifyLeadTime: String(Settings.get('notifyLeadTime') || 15),
+        notifyQuietStart: Settings.get('notifyQuietStart'),
+        notifyQuietEnd: Settings.get('notifyQuietEnd'),
+      };
+      Object.entries(mirror).forEach(([k, v]) => Storage.setSetting(k, v).catch(() => {}));
+    };
+    ['notificationsEnabled', 'notifySessionReminders', 'notifyLeadTime', 'notifyQuietStart', 'notifyQuietEnd']
+      .forEach((k) => Settings.subscribe(k, mirrorNotif));
+    mirrorNotif();
   },
 
   handleImageError(img) {
@@ -100,21 +146,20 @@ const app = {
   },
 
   initTheme() {
-    const stored = localStorage.getItem('theme');
-    if (stored) {
-      document.documentElement.setAttribute('data-theme', stored);
-    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      document.documentElement.setAttribute('data-theme', 'dark');
-    }
+    // Theme is now owned by Settings (applied on load). No-op kept for safety.
   },
 
   setTheme(theme) {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
+    return Settings.set('theme', theme);
   },
 
   setupListeners() {
     window.addEventListener('hashchange', () => this.handleRoute());
+    // Persist the live timer whenever the tab is hidden or unloaded, so a
+    // reload (or the PWA service worker) restores it instead of starting over.
+    const snapshot = () => { if (this._currentPage === 'timer') this.persistEngine(); };
+    window.addEventListener('pagehide', snapshot);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') snapshot(); });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.closeModals();
     });
@@ -157,7 +202,7 @@ const app = {
     });
   },
 
-  handleRoute() {
+  async handleRoute() {
     const hash = window.location.hash.slice(1);
 
     const noteMatch = hash.match(/^note\/(.+)$/);
@@ -184,6 +229,21 @@ const app = {
       sidebar?.classList.remove('open');
       backdrop?.classList.remove('visible');
     }
+    // Snapshot the timer before leaving it so a reload/return keeps progress.
+    // (In-memory `app.engine` already survives hash navigation; this also
+    // covers full page reloads where the engine object is lost.)
+    if (this._currentPage === 'timer' && hash !== 'timer') {
+      this.persistEngine();
+    }
+    // If we're returning to the timer with a restored/live engine, make sure
+    // it is bound, configured from current Settings, and repainted — this
+    // prevents it from appearing to "start over" when coming back.
+    if (hash === 'timer' && this.engine && this.engine.phase !== PHASE.IDLE && this.engine.phase !== PHASE.COMPLETE) {
+      this.bindEngine();
+      this.engine.configure(await this.loadFocusConfig());
+      this.engine.rehydrate();
+    }
+
     const pages = {
       dashboard: () => this.renderDashboard(),
       subjects: () => this.renderSubjects(),
@@ -191,11 +251,25 @@ const app = {
       timer: () => this.renderTimer(),
       notes: () => this.renderNotes(),
       statistics: () => this.renderStatistics(),
+      goals: () => this.renderGoals(),
       settings: () => this.renderSettings(),
     };
     const render = pages[hash] || pages.dashboard;
+    this._currentPage = hash;
     document.getElementById('pageContent').innerHTML = '';
     render();
+  },
+
+  // Re-render the currently visible page so quest/dashboard panels reflect
+  // progress changes (e.g. after a timer session completes). Avoids clobbering
+  // an actively-running timer session.
+  async refreshCurrentPage() {
+    const hash = window.location.hash.slice(1) || 'dashboard';
+    const liveTimer = this.engine && this.engine.isRunning()
+      && this.engine.phase !== PHASE.IDLE && this.engine.phase !== PHASE.COMPLETE;
+    if (hash === 'timer' && liveTimer) return; // don't disrupt a running session
+    if (hash === 'note') return; // note view manages its own refresh
+    this.handleRoute();
   },
 
   openModal(html) {
@@ -258,6 +332,9 @@ const app = {
     const weekTime = weekSessions.reduce((sum, s) => sum + (s.duration || 0), 0);
     const streak = this.calculateStreak(sessions);
     const dailyGoal = goals.find((g) => g.type === 'daily' && g.active);
+    const profile = Settings.questProfile();
+    const info = Settings.questLevelInfo(profile.xp);
+    const weekSet = new Set(weekDates);
     const el = document.getElementById('pageContent');
     const hour = new Date().getHours();
     let greeting = 'Good morning';
@@ -373,23 +450,32 @@ const app = {
             <div class="mt">
               ${todaySessions.filter((s) => s.source === 'timer').map((s) => {
                 const subj = subjects.find((x) => x.id === s.subjectId);
-                const isActive = focusState && focusState.sessionId === s.id && !focusState.closed;
+                // Prefer the live engine (source of truth while the app is open);
+                // fall back to the persisted focusState for reloads.
+                const liveEng = this.engine;
+                const liveActive = liveEng && liveEng.sessionId === s.id && liveEng.phase !== PHASE.IDLE && liveEng.phase !== PHASE.COMPLETE;
+                const persistedActive = focusState && focusState.sessionId === s.id && !focusState.closed
+                  && focusState.phase !== 'idle' && focusState.phase !== 'complete';
+                const isActive = liveActive || persistedActive;
+                const paused = liveActive ? liveEng.paused : (focusState ? focusState.paused : false);
+                const activeState = liveActive ? liveEng : focusState;
                 let status, badge;
                 if (s.endTime) {
                   status = formatDuration(s.duration || 0);
                   badge = 'badge-success';
-                } else if (isActive && focusState.paused) {
+                } else if (isActive && paused) {
                   status = 'Paused';
                   badge = 'badge-muted';
                 } else if (isActive) {
-                  const phase = focusState.phase === 'break' ? 'Break' : 'Focus';
-                  const roundInfo = focusState.config && focusState.config.rounds > 1
-                    ? ` · R${Math.min((focusState.round || 0) + 1, focusState.config.rounds)}/${focusState.config.rounds}` : '';
+                  const phase = activeState && activeState.phase === 'break' ? 'Break' : 'Focus';
+                  const cfg = activeState && activeState.config;
+                  const roundInfo = cfg && cfg.rounds > 1
+                    ? ` · R${Math.min((activeState.round || 0) + 1, cfg.rounds)}/${cfg.rounds}` : '';
                   status = phase + roundInfo;
                   badge = 'badge-primary';
                 } else {
-                  status = 'Paused';
-                  badge = 'badge-muted';
+                  status = 'In progress';
+                  badge = 'badge-warning';
                 }
                 const goal = s.goalId ? goals.find((g) => g.id === s.goalId) : null;
                 const subLabel = goal ? (subj ? subj.name + ' · ' : '') + (goal.label || goal.type)
@@ -409,18 +495,83 @@ const app = {
       </div>
       </div>
 
-      ${dailyGoal ? `
-      <div class="card mt">
-        <div class="card-header"><h2>Daily Goal</h2></div>
-        <div class="progress-bar mt">
-          <div class="progress-fill" style="width: ${Math.min(100, (todayTime / (dailyGoal.target * 3600)) * 100)}%"></div>
+      ${(() => {
+        if (!dailyGoal) return '';
+        const isTask = dailyGoal.kind === 'task' && dailyGoal.metric;
+        const pct = isTask
+          ? Math.min(100, Math.round(((dailyGoal.progress || 0) / (dailyGoal.target || 1)) * 100))
+          : Math.min(100, (todayTime / (dailyGoal.target * 3600)) * 100);
+        const cur = isTask ? (dailyGoal.progress || 0) : todayTime;
+        const tot = isTask ? (dailyGoal.target || 0) : dailyGoal.target * 3600;
+        return `
+        <div class="card mt">
+          <div class="card-header flex justify-between items-center">
+            <h2>Daily Quest</h2>
+            <span class="flex gap-xs items-center">
+              ${isTask ? `<button class="btn btn-ghost btn-sm" data-quest-how="${dailyGoal.metric}" data-quest-label="${escapeHtml(dailyGoal.label || '')}" aria-label="How to complete">How?</button>` : ''}
+              <span class="badge badge-primary">+${dailyGoal.bonusXp || 0} XP</span>
+            </span>
+          </div>
+          <p class="muted text-sm">${escapeHtml(dailyGoal.description || dailyGoal.label || '')}</p>
+          <div class="progress-bar mt">
+            <div class="progress-fill ${pct >= 100 ? 'success' : ''}" style="width: ${pct}%"></div>
+          </div>
+          <p class="muted text-center mt-sm">${isTask ? `${dailyGoal.progress || 0} / ${dailyGoal.target} ${dailyGoal.unit}` : `${formatDuration(cur)} / ${formatDuration(tot)}`}</p>
+        </div>`;
+      })()}
+
+      ${(() => {
+        const active = goals.filter((g) => g.type !== 'daily' && g.active);
+        if (active.length === 0) return '';
+        return `
+        <div class="card mt">
+          <div class="card-header flex justify-between items-center">
+            <h2>Your Quests</h2>
+            <a class="btn btn-ghost btn-sm" href="#goals" data-goto="goals">View all →</a>
+          </div>
+          <div class="dash-quests mt-sm">
+            ${active.slice(0, 4).map((q) => {
+              const pct = Math.min(100, Math.round(this.questProgress(q, sessions, weekSet) * 100));
+              const isTracking = (this.engine && this.engine.goalId === q.id) || this.pendingGoalId === q.id;
+              return `
+                <div class="dash-quest-row">
+                  <span class="font-medium truncate">${escapeHtml(q.label || 'Quest')}${isTracking ? ' <span class="badge badge-success">Tracking</span>' : ''}</span>
+                  <div class="progress-bar" style="flex:1;margin:0 8px">
+                    <div class="progress-fill ${pct >= 100 ? 'success' : ''}" style="width:${pct}%"></div>
+                  </div>
+                  <span class="muted text-xs">${pct}%</span>
+                </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      })()}
+
+      <div class="card quest-hero quest-hero-compact mt">
+        <div class="quest-hero-avatar" aria-hidden="true">
+          <div class="quest-level-badge">${info.level}</div>
         </div>
-        <p class="muted text-center mt-sm">${formatDuration(todayTime)} / ${dailyGoal.target}h</p>
+        <div class="quest-hero-body">
+          <div class="quest-hero-top">
+            <div>
+              <div class="quest-rank">${this.questRankTitle(info.level)}</div>
+              <div class="quest-level">Level ${info.level} · 🔥 ${streak}d</div>
+            </div>
+            <a class="btn btn-ghost btn-sm" href="#goals" data-goto="goals">Quests →</a>
+          </div>
+          <div class="quest-xp mt-sm">
+            <div class="progress-bar quest-xp-bar">
+              <div class="progress-fill" style="width:${info.pct}%"></div>
+            </div>
+            <div class="quest-xp-label">${info.into} / ${info.span} XP · ${info.toNext} to next level</div>
+          </div>
+        </div>
       </div>
-      ` : ''}
     `;
     document.getElementById('dashAddSubjectBtn')?.addEventListener('click', () => this.showSubjectForm());
     document.getElementById('dashAddPlanBtn')?.addEventListener('click', () => this.showSessionForm({ date: getToday() }));
+    el.querySelectorAll('[data-quest-how]').forEach((b) => {
+      b.addEventListener('click', () => this.showQuestHowTo(b.dataset.questHow, b.dataset.questLabel));
+    });
   },
 
   async renderSubjects() {
@@ -839,7 +990,7 @@ const app = {
           });
           const isToday = date === getToday();
           const d = new Date(date + 'T12:00:00');
-          const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+          const dayName = d.toLocaleDateString(Settings.locale(), { weekday: 'short' });
           const dayNum = d.getDate();
           return `
             <div class="planner-day ${isToday ? 'today' : ''}">
@@ -984,10 +1135,12 @@ const app = {
     const el = document.getElementById('pageContent');
 
     if (!this.engine) this.engine = new FocusEngine();
+    this._goalsCache = goals;
     const eng = this.engine;
     const phase = eng.phase;
     const running = eng.isRunning() && phase !== PHASE.IDLE && phase !== PHASE.COMPLETE;
     const paused = !!eng.paused && phase !== PHASE.IDLE && phase !== PHASE.COMPLETE;
+    const awaitingStart = !!eng.isAwaitingStart();
     const hasSession = phase !== PHASE.IDLE;
 
     const phaseLabel = paused ? 'Paused' : (phase === PHASE.BREAK ? 'Break' : (phase === PHASE.COMPLETE ? 'Complete' : 'Focus'));
@@ -1033,15 +1186,29 @@ const app = {
               </div>
               <div class="focus-config-row">
                 <label>Goal (optional)</label>
-                <select id="timerGoal" style="max-width:260px;">
-                  <option value="">No goal</option>
-                  ${linkableGoals.map((g) => `<option value="${g.id}">${escapeHtml((g.label || g.type) + (g.target ? ' (' + g.target + (g.unit || '') + ')' : ''))}</option>`).join('')}
-                </select>
+                  <select id="timerGoal" style="max-width:260px;">
+                    <option value="">No goal</option>
+                    ${linkableGoals.map((g) => `<option value="${g.id}" ${this.pendingGoalId === g.id ? 'selected' : ''}>${escapeHtml((g.label || g.type) + (g.target ? ' (' + g.target + (g.unit || '') + ')' : ''))}</option>`).join('')}
+                  </select>
               </div>
               <div class="focus-config-row focus-config-presets">
-                <button class="btn btn-ghost btn-sm preset-btn" data-focus="25" data-break="5" data-rounds="4">25 / 5 ×4</button>
-                <button class="btn btn-ghost btn-sm preset-btn" data-focus="50" data-break="10" data-rounds="2">50 / 10 ×2</button>
-                <button class="btn btn-ghost btn-sm preset-btn" data-focus="15" data-break="3" data-rounds="3">15 / 3 ×3</button>
+                <div class="focus-custom">
+                  <label>Focus
+                    <input type="number" id="timerFocusLen" min="1" max="120" value="${Settings.get('focusLength')}" style="width:64px">
+                    <span class="unit">min</span>
+                  </label>
+                  <label>Break
+                    <input type="number" id="timerBreakLen" min="1" max="60" value="${Settings.get('breakLength')}" style="width:64px">
+                    <span class="unit">min</span>
+                  </label>
+                  <label>Rounds
+                    <input type="number" id="timerRounds" min="1" max="12" value="${Settings.get('rounds')}" style="width:56px">
+                  </label>
+                </div>
+                <div class="focus-presets-list" id="timerPresetsList"></div>
+                <div class="flex gap-xs mt-xs">
+                  <button class="btn btn-ghost btn-sm" id="saveTimerPresetBtn">Save preset</button>
+                </div>
               </div>
             </div>
             <div class="flex gap mt">
@@ -1051,10 +1218,26 @@ const app = {
               </button>
             </div>
           ` : `
+            <div class="timer-active-config">
+              <div class="timer-active-row">
+                <span class="muted text-sm">Subject</span>
+                <strong>${escapeHtml((subjects.find((x) => x.id === eng.subjectId) || {}).name || '—')}</strong>
+              </div>
+              <div class="timer-active-row">
+                <span class="muted text-sm">Quest</span>
+                <strong>${eng.goalId ? escapeHtml((goals.find((g) => g.id === eng.goalId) || {}).label || 'Linked quest') : 'None'}</strong>
+              </div>
+              <div class="timer-active-row">
+                <span class="muted text-sm">Focus / Break / Rounds</span>
+                <strong>${Settings.get('focusLength')}m / ${Settings.get('breakLength')}m × ${Settings.get('rounds')}</strong>
+              </div>
+              ${eng.goalId ? this.timerQuestProgressHtml(eng.goalId) : ''}
+            </div>
             <div class="flex gap mt">
               ${running ? `<button class="btn btn-ghost btn-lg" id="pauseTimerBtn">Pause</button>` : ''}
-              ${!running && phase !== PHASE.COMPLETE ? `<button class="btn btn-primary btn-lg" id="resumeTimerBtn">Resume</button>` : ''}
-              ${phase === PHASE.FOCUS ? `<button class="btn btn-ghost btn-lg" id="skipTimerBtn">Skip phase</button>` : ''}
+              ${paused ? `<button class="btn btn-primary btn-lg" id="resumeTimerBtn">Resume</button>` : ''}
+              ${awaitingStart ? `<button class="btn btn-primary btn-lg" id="beginPhaseBtn">${phase === PHASE.FOCUS ? `Start round ${Math.min(eng.round + 1, eng.config.rounds)}` : 'Start break'}</button>` : ''}
+              ${phase === PHASE.FOCUS && running ? `<button class="btn btn-ghost btn-lg" id="skipTimerBtn">Skip phase</button>` : ''}
               ${phase !== PHASE.COMPLETE ? `<button class="btn btn-danger btn-lg" id="stopTimerBtn">Stop</button>` : ''}
             </div>
             ${phase === PHASE.COMPLETE ? `<p class="muted mt">Session complete — great work! 🎉</p>` : ''}
@@ -1066,24 +1249,117 @@ const app = {
     document.getElementById('startTimerBtn')?.addEventListener('click', () => this.startTimer());
     document.getElementById('pauseTimerBtn')?.addEventListener('click', () => this.pauseTimer());
     document.getElementById('resumeTimerBtn')?.addEventListener('click', () => this.resumeTimer());
+    document.getElementById('beginPhaseBtn')?.addEventListener('click', () => this.beginPhase());
     document.getElementById('stopTimerBtn')?.addEventListener('click', () => this.stopTimer());
     document.getElementById('skipTimerBtn')?.addEventListener('click', () => this.skipTimer());
-    el.querySelectorAll('.preset-btn').forEach((b) => {
-      b.addEventListener('click', () => {
-        eng.configure({
-          focusLength: parseInt(b.dataset.focus, 10) * 60,
-          breakLength: parseInt(b.dataset.break, 10) * 60,
-          rounds: parseInt(b.dataset.rounds, 10),
-        });
-        Storage.setSetting('focusPreset', { focusLength: eng.config.focusLength, breakLength: eng.config.breakLength, rounds: eng.config.rounds });
-        this.renderTimer();
-      });
+
+    const applyTimerInputs = async () => {
+      const f = clampInt(document.getElementById('timerFocusLen'), 1, 120, Settings.get('focusLength'));
+      const b = clampInt(document.getElementById('timerBreakLen'), 1, 60, Settings.get('breakLength'));
+      const r = clampInt(document.getElementById('timerRounds'), 1, 12, Settings.get('rounds'));
+      await Settings.setMany({ focusLength: f, breakLength: b, rounds: r });
+      eng.configure(await this.loadFocusConfig());
+      this.renderTimerPresets();
+    };
+    ['timerFocusLen', 'timerBreakLen', 'timerRounds'].forEach((id) => {
+      document.getElementById(id)?.addEventListener('change', applyTimerInputs);
     });
+
+    document.getElementById('saveTimerPresetBtn')?.addEventListener('click', () => this.saveTimerPreset());
+    this.renderTimerPresets();
+
     document.getElementById('timerHelpBtn')?.addEventListener('click', () => this.showTimerHelp());
     if (!(await Storage.getSetting('timerHelpSeen'))) {
       await Storage.setSetting('timerHelpSeen', true);
       this.showTimerHelp();
     }
+  },
+
+  // Resolve the quest the user is currently tracking (linked to the live timer
+  // or previously chosen via "Earn in Timer"), or null if none.
+  getTrackedQuest(goals) {
+    const trackedId = (this.engine && this.engine.goalId) || this.pendingGoalId || null;
+    if (!trackedId) return null;
+    return goals.find((g) => g.id === trackedId) || null;
+  },
+
+  // Live tracked-quest block used inside the quest hero card so it actually
+  // reflects the quest in progress instead of only the player's level.
+  questHeroTrackedHtml(goals) {
+    const goal = this.getTrackedQuest(goals);
+    if (!goal) {
+      return `
+        <div class="quest-hero-tracked quest-hero-tracked-empty">
+          <span class="muted text-sm">No quest tracked yet — link one from the Timer or pick “Earn in Timer” on a quest below.</span>
+        </div>`;
+    }
+    const pct = Math.min(100, Math.round(this.questProgress(goal, [], new Set(getWeekDates())) * 100));
+    const completed = pct >= 100;
+    const unitLabel = goal.unit === 'minutes' ? 'min' : goal.unit === 'sessions' ? 'sessions' : 'h';
+    return `
+      <div class="quest-hero-tracked">
+        <div class="quest-hero-tracked-head">
+          <span class="quest-hero-tracked-label">Tracking · ${escapeHtml(goal.label || 'Quest')}</span>
+          <span class="badge badge-success">${pct}%</span>
+        </div>
+        <div class="progress-bar" style="margin-top:6px"><div class="progress-fill ${completed ? 'success' : ''}" style="width:${pct}%"></div></div>
+        <div class="muted text-xs mt-xs">${completed ? '✅ Quest complete!' : `${Math.floor(this.questCurrentValue(goal) * 10) / 10} / ${goal.target || 0} ${unitLabel}`}</div>
+      </div>`;
+  },
+
+  // Live progress line for the quest linked to the running timer.
+  timerQuestProgressHtml(goalId) {
+    const goal = (this._goalsCache || []).find((g) => g.id === goalId);
+    if (!goal) return '';
+    const pct = Math.min(100, Math.round((this.questProgress(goal, [], new Set(getWeekDates())) * 100)));
+    const completed = pct >= 100;
+    return `
+      <div class="timer-active-row timer-quest-progress">
+        <span class="muted text-sm">Quest progress</span>
+        <div class="flex items-center gap-xs" style="flex:1">
+          <div class="progress-bar" style="flex:1"><div class="progress-fill ${completed ? 'success' : ''}" style="width:${pct}%"></div></div>
+          <span class="muted text-xs">${pct}%</span>
+        </div>
+      </div>`;
+  },
+
+  renderTimerPresets() {
+    const list = document.getElementById('timerPresetsList');
+    if (!list) return;
+    const presets = Settings.get('timerPresets') || [];
+    if (!presets.length) { list.innerHTML = '<span class="subtle text-sm">No saved presets yet.</span>'; return; }
+    list.innerHTML = presets.map((p, i) => `
+      <button class="btn btn-ghost btn-sm preset-chip" data-idx="${i}" title="Apply ${escapeHtml(p.name)}">
+        ${escapeHtml(p.name)} <span class="preset-x" data-del="${i}" aria-label="Delete">×</span>
+      </button>`).join('');
+    list.querySelectorAll('.preset-chip').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        if (e.target.dataset.del != null) {
+          e.stopPropagation();
+          const presets2 = Settings.get('timerPresets').slice();
+          presets2.splice(parseInt(e.target.dataset.del, 10), 1);
+          await Settings.set('timerPresets', presets2);
+          this.renderTimerPresets();
+          return;
+        }
+        const p = Settings.get('timerPresets')[parseInt(btn.dataset.idx, 10)];
+        await Settings.setMany({ focusLength: p.focusLength, breakLength: p.breakLength, rounds: p.rounds, longBreakLength: p.longBreakLength, longBreakEvery: p.longBreakEvery });
+        if (this.engine) this.engine.configure(await this.loadFocusConfig());
+        this.renderTimer();
+      });
+    });
+  },
+
+  async saveTimerPreset() {
+    const f = clampInt(document.getElementById('timerFocusLen'), 1, 120, Settings.get('focusLength'));
+    const b = clampInt(document.getElementById('timerBreakLen'), 1, 60, Settings.get('breakLength'));
+    const r = clampInt(document.getElementById('timerRounds'), 1, 12, Settings.get('rounds'));
+    const name = `${f}/${b}×${r}`;
+    const presets = (Settings.get('timerPresets') || []).filter((p) => p.name !== name);
+    presets.push({ name, focusLength: f, breakLength: b, rounds: r, longBreakLength: Settings.get('longBreakLength'), longBreakEvery: Settings.get('longBreakEvery') });
+    await Settings.set('timerPresets', presets.slice(-8));
+    this.renderTimerPresets();
+    this.toast('Preset saved: ' + name, 'success');
   },
 
   showTimerHelp() {
@@ -1112,7 +1388,40 @@ const app = {
     document.getElementById('closeTimerHelp')?.addEventListener('click', () => this.closeModals());
   },
 
+  // Explains, per quest metric, exactly how a student can complete it.
+  questHowToText(metric) {
+    const map = {
+      notesReviewed: 'Open any note from the Notes page (or make an edit) today. Simply viewing a note counts as revisiting it. Tip: open the notes you want to remember to check them off.',
+      notesCreated: 'Tap “Add note” on the Notes page and create a new note today. Each saved note counts toward this quest.',
+      questionsCaptured: 'While writing a note, end a line with “?” or start it with a question word (What / Why / How). StudyFlow will offer to turn it into a tracked question — tap “Add”. Each captured question counts.',
+      focusRounds: 'On the Timer page, pick a subject (and optionally a quest), then Start. Each completed focus round — even a single 25-minute round — counts.',
+      subjectsStudied: 'Study with the Timer across different subjects today. Each distinct subject you log a session for counts toward this quest.',
+      sessionsPlanned: 'On the Planner page, add at least the target number of sessions for today. Each planned session counts.',
+    };
+    return map[metric] || 'Make progress with the Timer, Notes, or Planner — your activity is tracked automatically.';
+  },
+
+  showQuestHowTo(metric, label) {
+    this.openModal(`
+      <div class="modal-overlay">
+        <div class="modal" style="max-width:520px">
+          <div class="modal-header">
+            <h2>How to complete this quest</h2>
+            <button class="btn btn-ghost btn-sm" id="closeQuestHowTo">Close</button>
+          </div>
+          <div class="quest-howto-body">
+            ${label ? `<p class="muted mb">${escapeHtml(label)}</p>` : ''}
+            <p>${escapeHtml(this.questHowToText(metric))}</p>
+            <p class="subtle mt-sm">Quests track your real activity — no manual check-in needed. Finish it and you'll get the bonus XP automatically.</p>
+          </div>
+        </div>
+      </div>
+    `);
+    document.getElementById('closeQuestHowTo')?.addEventListener('click', () => this.closeModals());
+  },
+
   async startTimer() {
+    unlockAudio();
     const subjectId = document.getElementById('timerSubject').value;
     if (!subjectId) return this.toast('Please select a subject', 'error');
     const goalId = document.getElementById('timerGoal')?.value || null;
@@ -1138,6 +1447,7 @@ const app = {
     this.bindEngine();
     await this.persistEngine();
     this.renderTimer();
+    this.pendingGoalId = null;
     this.toast('Focus session started', 'success');
   },
 
@@ -1156,9 +1466,18 @@ const app = {
     this.renderTimer();
   },
 
+  async beginPhase() {
+    if (!this.engine) return;
+    this.engine.beginPhase();
+    await this.persistEngine();
+    this.renderTimer();
+  },
+
   async skipTimer() {
     if (!this.engine) return;
     this.engine.skip();
+    await this.persistEngine();
+    this.renderTimer();
   },
 
   async stopTimer() {
@@ -1175,25 +1494,40 @@ const app = {
 
   /* ---------- Focus Engine glue ---------- */
   async loadFocusConfig() {
-    const saved = await Storage.getSetting('focusPreset');
-    return saved ? {
-      focusLength: saved.focusLength,
-      breakLength: saved.breakLength,
-      rounds: saved.rounds,
-    } : {};
+    return {
+      focusLength: Settings.get('focusLength') * 60,
+      breakLength: Settings.get('breakLength') * 60,
+      rounds: Settings.get('rounds'),
+      longBreakLength: Settings.get('longBreakLength') * 60,
+      longBreakEvery: Settings.get('longBreakEvery'),
+      autoStartBreaks: Settings.get('autoStartBreaks'),
+      autoStartFocus: Settings.get('autoStartFocus'),
+      breakLengthFor: (completedFocusRounds) => this.nextBreakLength(completedFocusRounds),
+    };
+  },
+
+  // Decides whether the upcoming break is a long break based on Settings.
+  nextBreakLength(completedFocusRounds) {
+    const every = Settings.get('longBreakEvery');
+    if (every >= 2 && completedFocusRounds > 0 && completedFocusRounds % every === 0) {
+      return Settings.get('longBreakLength') * 60;
+    }
+    return Settings.get('breakLength') * 60;
   },
 
   bindEngine() {
     const eng = this.engine;
     eng.onTick = () => this.paintTimer();
-    eng.onPhase = () => {
+    eng.onPhase = (phase) => {
+      // Sound + vibrate on every phase boundary (including breaks).
+      if (phase !== PHASE.IDLE) playPhaseSound(phase === PHASE.COMPLETE ? 'complete' : 'phase');
       this.paintTimer();
       this.persistEngine();
       this.renderTimer();
     };
     eng.onComplete = async ({ focusSeconds }) => {
+      playPhaseSound('complete');
       await this.saveSessionDuration();
-      await this.contributeToGoal(focusSeconds);
       await this.persistEngine(true);
       this.renderTimer();
     };
@@ -1232,6 +1566,13 @@ const app = {
     session.duration = duration;
     session.paused = eng.phase === PHASE.IDLE;
     await Storage.saveSession(session);
+    // Award XP + quest progress once per session, when it is finalized
+    // (stopped early or completed). This also captures partial focus time.
+    if ((eng.phase === PHASE.COMPLETE || eng.phase === PHASE.IDLE) && !session.xpAwarded) {
+      session.xpAwarded = true;
+      await this.awardQuestXp(Math.round(duration / 60));
+      await this.contributeToGoal(duration, { silent: true });
+    }
     this.checkGoalCelebrations();
   },
 
@@ -1243,6 +1584,11 @@ const app = {
     const weekSet = new Set(weekDates);
     const today = getToday();
 
+    // Auto-accumulate study-time quests from saved sessions so they track on
+    // their own, without requiring an explicit timer→quest link.
+    await this.syncStudyQuests(sessions, goals);
+
+    if (!Settings.get('goalCelebrations')) return;
     const flags = JSON.parse(localStorage.getItem('goalCelebrations') || '{}');
     const weekKey = weekDates[0];
     let changed = false;
@@ -1273,21 +1619,187 @@ const app = {
           flags[key] = true;
           changed = true;
           this.congratsOverlay('Daily study goal reached — amazing work!');
+          const bonus = dailyGoal.bonusXp || 0;
+          if (bonus && !dailyGoal.completedDate) {
+            dailyGoal.completedDate = today;
+            await Storage.saveGoal(dailyGoal);
+            await this.awardQuestXp(0, bonus);
+          }
         }
       }
     }
 
+    // User-defined (generic) quests: celebrate + award a difficulty-based bonus
+    // the first time each one reaches its target.
+    const QUEST_BONUS = { easy: 15, normal: 30, hard: 50, epic: 80 };
+    for (const g of goals) {
+      if (g.type !== 'quest' || !g.active) continue;
+      const done = (g.progress || 0) >= (g.target || 0);
+      if (!done) continue;
+      const key = `quest_${g.id}`;
+      if (flags[key]) continue;
+      flags[key] = true;
+      changed = true;
+      const bonus = g.bonusXp || QUEST_BONUS[g.difficulty] || 30;
+      if (!g.completedDate) {
+        g.completedDate = today;
+        await Storage.saveGoal(g);
+      }
+      await this.awardQuestXp(0, bonus);
+      this.congratsOverlay(`Quest complete: ${g.label || 'Quest'}! +${bonus} XP 🎉`);
+    }
+
     if (changed) localStorage.setItem('goalCelebrations', JSON.stringify(flags));
+
+    // Task-style daily quests (review notes, capture questions, etc.) are
+    // measured from live data rather than study time.
+    await this.evaluateDailyQuest();
+
+    // Reflect any progress/completion changes on the currently visible page.
+    this.refreshCurrentPage().catch(() => {});
   },
 
-  async contributeToGoal(focusSeconds) {
+  // Auto-accumulate study-time quests from saved sessions. A quest counts as a
+  // study quest when it has time/session units (not a task-metric quest), and
+  // tracks focus time across its lifetime (optionally scoped to a week or a
+  // subject via `scope`). This makes quests fill on their own as you study —
+  // no manual timer→quest link needed.
+  async syncStudyQuests(sessions, goals) {
+    if (!sessions || !goals) return;
+    const studyUnits = new Set(['hours', 'minutes', 'sessions']);
+    const weekSet = new Set(getWeekDates());
+    for (const g of goals) {
+      if (g.type !== 'quest' || !g.active) continue;
+      if (g.metric || g.kind === 'task') continue;
+      if (!studyUnits.has(g.unit)) continue;
+      const isWeekly = g.scope === 'weekly';
+      const isSubject = g.scope === 'subject' && g.subjectId;
+      const secs = sessions
+        .filter((s) => {
+          if (!s.duration) return false;
+          if (isWeekly && !weekSet.has(s.date)) return false;
+          if (isSubject && s.subjectId !== g.subjectId) return false;
+          return true;
+        })
+        .reduce((sum, s) => sum + (s.duration || 0), 0);
+      if (secs !== (g.progress || 0)) {
+        g.progress = secs;
+        await Storage.saveGoal(g);
+      }
+    }
+  },
+
+  async contributeToGoal(focusSeconds, opts = {}) {
     const eng = this.engine;
     if (!eng || !eng.goalId || !focusSeconds) return;
     const goal = await Storage.getGoal(eng.goalId);
     if (!goal) return;
     goal.progress = (goal.progress || 0) + focusSeconds;
     await Storage.saveGoal(goal);
-    this.toast(`Added ${formatDuration(focusSeconds)} to goal`, 'success');
+    if (!opts.silent) this.toast(`Added ${formatDuration(focusSeconds)} to goal`, 'success');
+    await this.awardQuestXp(Math.round(focusSeconds / 60));
+  },
+
+  /* ---------- Daily quest (auto-generated, bonus XP) ---------- */
+
+  async ensureDailyQuest() {
+    try {
+      await ensureDailyQuest();
+    } catch (e) {
+      console.warn('[questSeed] ensure failed', e);
+    }
+  },
+
+  // Measure a task-type daily quest's current value from live data.
+  async measureDailyMetric(metric) {
+    const today = getToday();
+    if (metric === 'focusRounds') {
+      const sessions = await Storage.getAllSessions();
+      return sessions.filter((s) => s.date === today && s.source === 'timer' && s.endTime).length;
+    }
+    if (metric === 'sessionsPlanned') {
+      const sessions = await Storage.getAllSessions();
+      return sessions.filter((s) => s.date === today && s.source !== 'timer').length;
+    }
+    if (metric === 'subjectsStudied') {
+      const sessions = await Storage.getAllSessions();
+      return new Set(sessions.filter((s) => s.date === today && s.subjectId).map((s) => s.subjectId)).size;
+    }
+    if (metric === 'notesCreated' || metric === 'notesReviewed') {
+      const notes = await Storage.getAllNotes();
+      if (metric === 'notesCreated') {
+        return notes.filter((n) => localDateOf(n.createdAt) === today).length;
+      }
+      // Reviewed = opened (lastViewedAt) or edited (updatedAt) today,
+      // including notes created today.
+      return notes.filter((n) => {
+        const viewed = localDateOf(n.lastViewedAt) === today;
+        const edited = localDateOf(n.updatedAt) === today;
+        return viewed || edited;
+      }).length;
+    }
+    if (metric === 'questionsCaptured') {
+      const notes = await Storage.getAllNotes();
+      return notes.reduce((sum, n) => sum + ((n.questions || []).filter((q) => (q.createdAt || '').slice(0, 10) === today).length), 0);
+    }
+    return 0;
+  },
+
+  // Recompute progress for a task-type daily quest and award the bonus on
+  // first completion. Returns true if the quest was just completed now.
+  async evaluateDailyQuest() {
+    const goals = await Storage.getAllGoals();
+    const daily = goals.find((g) => g.id === 'daily' && g.active);
+    if (!daily || !isDailyQuest(daily)) return false;
+    if (daily.kind === 'study') return false; // study-time dailies handled in checkGoalCelebrations
+
+    const metricVal = await this.measureDailyMetric(daily.metric);
+    const prev = daily.progress || 0;
+    const next = Math.max(prev, metricVal);
+    const wasDone = prev >= (daily.target || 0);
+    const isDone = next >= (daily.target || 0);
+
+    let justCompleted = false;
+    if (!wasDone && isDone) justCompleted = true;
+
+    if (next !== prev || (isDone && !daily.completedDate)) {
+      daily.progress = next;
+      if (isDone && !daily.completedDate) daily.completedDate = getToday();
+      await Storage.saveGoal(daily);
+    }
+
+    if (justCompleted) {
+      const bonus = daily.bonusXp || 0;
+      if (bonus) await this.awardQuestXp(0, bonus);
+      this.congratsOverlay('Daily quest complete — bonus XP earned! 🎉');
+      return true;
+    }
+    return false;
+  },
+
+  async awardQuestXp(minutes, bonus = 0) {
+    if ((!minutes || minutes <= 0) && (!bonus || bonus <= 0)) return;
+    let xp = (minutes || 0) * (Number(Settings.get('questXpPerMinute')) || 10);
+    if (bonus) xp += bonus;
+    const res = await Settings.questAddXp(xp);
+    this.toast(`+${xp} XP`, 'success');
+    if (res.leveledUp) {
+      this.levelUpOverlay(res.level);
+    }
+  },
+
+  levelUpOverlay(level) {
+    this.openModal(`
+      <div class="modal-overlay congrats-overlay">
+        <div class="congrats-card">
+          <img class="congrats-illo" src="assets/congrats_illustration/Graduation-1--Streamline-Bangalore.png" alt="">
+          <h2>Level up! ⚡</h2>
+          <p class="muted">You reached <strong>Level ${level}</strong> — ${escapeHtml(this.questRankTitle(level))}.</p>
+          <button class="btn btn-primary" id="levelUpClose">Nice!</button>
+        </div>
+      </div>
+    `);
+    document.getElementById('levelUpClose')?.addEventListener('click', () => this.closeModals());
   },
 
   async persistEngine(closed = false) {
@@ -1304,6 +1816,9 @@ const app = {
     if (eng.phase === PHASE.IDLE || eng.phase === PHASE.COMPLETE) return;
     this.engine = eng;
     this.bindEngine();
+    // Re-apply live config: the serialized config loses `breakLengthFor`
+    // (a function) and must reflect current Settings for autoStart/long breaks.
+    eng.configure(await this.loadFocusConfig());
     eng.rehydrate();
   },
 
@@ -1353,10 +1868,10 @@ const app = {
           ${subjects.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}
         </select>
         <select id="noteGroupLens" class="form-control" title="Group notes by">
-          <option value="subject">Group: Subject</option>
-          <option value="affinity">Group: Affinity</option>
-          <option value="recency">Group: Recency</option>
-          <option value="questions">Group: Questions</option>
+          <option value="subject" ${Settings.get('noteDefaultLens') === 'subject' ? 'selected' : ''}>Group: Subject</option>
+          <option value="affinity" ${Settings.get('noteDefaultLens') !== 'subject' && Settings.get('noteDefaultLens') !== 'recency' && Settings.get('noteDefaultLens') !== 'questions' ? 'selected' : ''}>Group: Affinity</option>
+          <option value="recency" ${Settings.get('noteDefaultLens') === 'recency' ? 'selected' : ''}>Group: Recency</option>
+          <option value="questions" ${Settings.get('noteDefaultLens') === 'questions' ? 'selected' : ''}>Group: Questions</option>
         </select>
       </div>
       <div class="grid grid-2 gap" id="notesGrid"></div>
@@ -1367,7 +1882,7 @@ const app = {
     const lensSelect = document.getElementById('noteGroupLens');
 
     const renderGrouped = (srcNotes) => {
-      const lens = lensSelect ? lensSelect.value : 'affinity';
+      const lens = lensSelect ? lensSelect.value : (Settings.get('noteDefaultLens') || 'affinity');
       const { groups, ungrouped } = groupNotesByLens(srcNotes, lens, subjects);
       const blocks = groups.map((g) => `
         <section class="note-group" style="grid-column:1/-1">
@@ -1498,10 +2013,10 @@ const app = {
       this.renderMathInPreview();
     },
 
-   async showNoteForm(note) {
-    const subjects = await Storage.getAllSubjects();
-    const isEdit = !!note;
-    const data = note || { id: generateId(), title: '', subjectId: '', content: '' };
+    async showNoteForm(note) {
+     const subjects = await Storage.getAllSubjects();
+     const isEdit = !!note;
+     const data = note || { id: generateId(), title: '', subjectId: Settings.get('noteDefaultSubject') || '', content: '' };
 
     const moodLines = [
       'Capture a thought before it slips away.',
@@ -1600,6 +2115,7 @@ const app = {
       await Storage.saveNote(noteObj);
       this.toast(isEdit ? 'Note updated' : 'Note added — keep going!', 'success');
       this.closeModals();
+      this.evaluateDailyQuest();
       this.renderNotes();
     });
   },
@@ -1629,6 +2145,16 @@ const app = {
 
     const subj = subjects.find(s => s.id === note.subjectId);
     const el = document.getElementById('pageContent');
+
+    // Opening a note counts as a revisit for the daily quest.
+    let needsQuestRefresh = false;
+    try {
+      await Storage.markNoteViewed(noteId);
+      needsQuestRefresh = true;
+    } catch (e) { /* non-fatal */ }
+    // Recompute the daily quest immediately so the revisit registers without
+    // waiting for a save or a trip to the Notes list.
+    this.evaluateDailyQuest().catch(() => {});
 
     el.innerHTML = `
       <div class="note-view">
@@ -1662,10 +2188,10 @@ const app = {
               <span class="subtle" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em">Editor</span>
               <button class="btn btn-ghost btn-sm" id="noteMarkdownHelpBtn" style="padding:4px 10px;font-size:0.75rem">Markdown guide</button>
             </div>
-            <div class="note-editor">
-              <label for="noteContentInput" class="sr-only">Note content</label>
-              <textarea id="noteContentInput" placeholder="Start writing...">${escapeHtml(note.content || '')}</textarea>
-            </div>
+              <div class="note-editor">
+               <label for="noteContentInput" class="sr-only">Note content</label>
+               <textarea id="noteContentInput" placeholder="Start writing..." spellcheck="${Settings.get('noteSpellcheck') ? 'true' : 'false'}">${escapeHtml(note.content || '')}</textarea>
+             </div>
           </div>
           <div>
             <div class="note-meta-row" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -1828,15 +2354,17 @@ const app = {
        attachLinkHandlers();
        this.renderMathInPreview();
 
-      const title = titleInput.value.trim();
-      const subjectId = document.getElementById('noteSubjectSelect').value || null;
-      if (!title) return;
+       const title = titleInput.value.trim();
+       const subjectId = document.getElementById('noteSubjectSelect').value || null;
 
-      const existing = await Storage.getNote(note.id);
-      const noteObj = { ...existing, id: note.id, title, subjectId, content, questions: currentQuestions };
-      await Storage.saveNote(noteObj);
-      this.renderBacklinks(noteObj, await Storage.getAllNotes());
-    }, 400);
+       // Preview/reflection always updates. Persisting is gated by noteAutosave.
+       if (!Settings.get('noteAutosave') || !title) return;
+
+       const existing = await Storage.getNote(note.id);
+       const noteObj = { ...existing, id: note.id, title, subjectId, content, questions: currentQuestions };
+       await Storage.saveNote(noteObj);
+       this.renderBacklinks(noteObj, await Storage.getAllNotes());
+     }, 400);
 
     titleInput?.addEventListener('input', updatePreview);
     contentInput?.addEventListener('input', updatePreview);
@@ -2200,6 +2728,10 @@ const app = {
     });
 
     renderRecordings();
+
+    if (needsQuestRefresh) {
+      this.evaluateDailyQuest().catch(() => {});
+    }
   },
 
   renderBacklinks(currentNote, allNotes) {
@@ -2328,7 +2860,7 @@ const app = {
       });
       const dayLabels = last7.map((d) => {
         const date = new Date(d + 'T12:00:00');
-        return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        return date.toLocaleDateString(Settings.locale(), { weekday: 'short', month: 'short', day: 'numeric' });
       });
 
       new Chart(document.getElementById('barChart'), {
@@ -2381,240 +2913,685 @@ const app = {
     }
   },
 
-  async renderSettings() {
+  /* ------------------------------------------------------------------ */
+  /* Quests & Levels                                                     */
+  /* ------------------------------------------------------------------ */
+
+  questRankTitle(level) {
+    const ranks = [
+      'Novice', 'Apprentice', 'Scholar', 'Adept', 'Keeper', 'Sage',
+      'Mentor', 'Luminary', 'Archmage', 'Legend',
+    ];
+    return ranks[Math.min(ranks.length - 1, Math.floor((level - 1) / 5))];
+  },
+
+  questUnitSeconds(goal) {
+    if (!goal) return 3600;
+    if (goal.unit === 'minutes') return 60;
+    if (goal.unit === 'sessions') return 1;
+    return 3600; // hours
+  },
+
+  // Human-readable current value for a quest given its stored progress (seconds).
+  questCurrentValue(goal) {
+    if (!goal) return 0;
+    const unit = this.questUnitSeconds(goal);
+    if (goal.unit === 'sessions') return goal.progress || 0; // one session == one unit
+    return (goal.progress || 0) / unit;
+  },
+
+  questProgress(goal, sessions, weekSet) {
+    if (!goal) return 0;
+    const unit = this.questUnitSeconds(goal);
+    if (goal.type === 'daily') {
+      // Study-time dailies track today's focused seconds; task-type dailies
+      // (e.g. "revisit notes") store their progress directly on the goal.
+      if (goal.kind === 'task' || goal.metric) {
+        return (goal.progress || 0) / unit / (goal.target || 1);
+      }
+      return sessions.filter((s) => s.date === getToday())
+        .reduce((sum, s) => sum + (s.duration || 0), 0) / unit;
+    }
+    if (goal.type === 'subject-weekly') {
+      return sessions.filter((s) => s.subjectId === goal.subjectId && s.date && weekSet.has(s.date))
+        .reduce((sum, s) => sum + (s.duration || 0), 0) / unit;
+    }
+    // generic quest (linked via timer progress field); progress is stored in
+    // seconds, so divide by the unit to compare against the target.
+    return (goal.progress || 0) / unit / (goal.target || 1);
+  },
+
+  // Progress (0..1) for a daily quest on the correct track. Task-type dailies
+  // read stored progress; study-type dailies sum today's session duration.
+  dailyProgress(daily, sessions) {
+    if (!daily) return 0;
+    if (daily.kind === 'task' || daily.metric) {
+      const unit = this.questUnitSeconds(daily);
+      return (daily.progress || 0) / unit / (daily.target || 1);
+    }
+    const unit = this.questUnitSeconds(daily);
+    const secs = (sessions || [])
+      .filter((s) => s.date === getToday())
+      .reduce((sum, s) => sum + (s.duration || 0), 0);
+    return secs / unit;
+  },
+
+  async renderGoals() {
     const el = document.getElementById('pageContent');
-    const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
-    const goals = await Storage.getAllGoals();
-    const dailyGoal = goals.find((g) => g.type === 'daily' && g.active);
+    const [goals, sessions, subjects] = await Promise.all([
+      Storage.getAllGoals(), Storage.getAllSessions(), Storage.getAllSubjects(),
+    ]);
+    const profile = Settings.questProfile();
+    const info = Settings.questLevelInfo(profile.xp);
+    const weekSet = new Set(getWeekDates());
+
+    const quests = goals.filter((g) => g.type !== 'daily' && g.active).sort((a, b) => (a.order || 0) - (b.order || 0));
+    const daily = goals.find((g) => g.type === 'daily' && g.active);
+    const streak = this.calculateStreak(sessions);
 
     el.innerHTML = `
-      <div class="settings-header">
-        <h1>Settings</h1>
-        <p class="muted">Manage your preferences and data.</p>
+      <div class="page-header flex justify-between items-center page-header-inline">
+        <h1>Quests</h1>
+        <button class="btn btn-primary btn-sm" id="addQuestBtn">+ New quest</button>
       </div>
 
-      <div class="settings-section card">
-        <div class="settings-section-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-          Appearance
+      <div class="quest-hero card">
+        <div class="quest-hero-avatar" aria-hidden="true">
+          <div class="quest-level-badge">${info.level}</div>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="8" r="6"/><path d="M8.5 13.5 7 22l5-3 5 3-1.5-8.5"/>
+          </svg>
         </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <span>Theme</span>
-            <span class="subtle">Choose between light and dark mode</span>
+        <div class="quest-hero-body">
+          <div class="quest-hero-top">
+            <div>
+              <div class="quest-rank">${this.questRankTitle(info.level)}</div>
+              <div class="quest-level">Level ${info.level}</div>
+            </div>
+            <div class="quest-streak" title="Day streak">🔥 ${streak} day${streak === 1 ? '' : 's'}</div>
           </div>
-          <div class="settings-theme-btns">
-            <button class="settings-theme-btn ${currentTheme === 'light' ? 'active' : ''}" id="themeLight">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-              Light
-            </button>
-            <button class="settings-theme-btn ${currentTheme === 'dark' ? 'active' : ''}" id="themeDark">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-              Dark
-            </button>
+          <div class="quest-xp">
+            <div class="progress-bar quest-xp-bar">
+              <div class="progress-fill" style="width:${info.pct}%"></div>
+            </div>
+            <div class="quest-xp-label">${info.into} / ${info.span} XP · ${info.toNext} to next level</div>
           </div>
-        </div>
-      </div>
-
-      <div class="settings-section card">
-        <div class="settings-section-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          Goals
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <span>Daily study goal</span>
-            <span class="subtle">How many hours you aim to study each day</span>
-          </div>
-          <div class="settings-row-control">
-            <input type="number" id="dailyGoalInput" min="0.5" step="0.5" value="${dailyGoal ? dailyGoal.target : ''}" placeholder="e.g. 2" style="width:90px;text-align:center">
-            <button class="btn btn-primary btn-sm" id="saveGoalBtn">Save</button>
-          </div>
+          ${this.questHeroTrackedHtml(goals)}
         </div>
       </div>
 
-      <div class="settings-section card">
-        <div class="settings-section-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7 3 9 3 9h6s3-2 3-9z"/><path d="M12 18v-4"/><path d="M8 18v-1"/><path d="M16 18v-3"/></svg>
-          Notifications
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <span>Study reminders</span>
-            <span class="subtle">Get notified 15 minutes before a planned session</span>
-          </div>
-          <button class="btn btn-ghost btn-sm" id="notificationsToggle">Enable</button>
-        </div>
-      </div>
+      ${daily ? this.dailyQuestEditorHtml(daily, sessions) : `
+        <div class="card mt">
+          <p class="muted">No daily quest set. The app creates one for you each day — or set your own below.</p>
+          <button class="btn btn-primary btn-sm mt-sm" id="createDailyBtn">Create daily quest</button>
+        </div>`}
 
-      <div class="settings-section card">
-        <div class="settings-section-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-          Data
+      ${quests.length === 0 ? `
+        <div class="empty-state card mt empty-state-lg">
+          <img class="empty-illo" src="assets/illustrations/Business-Go-To-Market-Strategy-01--Streamline-Bangalore.png" alt="">
+          <h3>No quests yet</h3>
+          <p>Create a quest — like “Finish Chapter 3” or “30 minutes of Spanish” — and watch your XP grow as you study.</p>
+        </div>` : `
+        <div class="quests-grid grid grid-2 gap mt">
+          ${quests.map((q) => this.questCardHtml(q, this.questProgress(q, sessions, weekSet), { subjects, activeGoalId: (this.engine && this.engine.goalId) || this.pendingGoalId || null })).join('')}
         </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <span>Export data</span>
-            <span class="subtle">Download all your data as a JSON file</span>
-          </div>
-          <button class="btn btn-ghost btn-sm" id="exportBtn">Export JSON</button>
-        </div>
-        <div class="divider"></div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <span>Import data</span>
-            <span class="subtle">Restore from a previously exported file</span>
-          </div>
-          <label class="btn btn-ghost btn-sm" style="cursor:pointer">
-            Import JSON
-            <input type="file" id="importFile" accept="application/json" class="hidden">
-          </label>
-        </div>
-      </div>
+      `}
+    `;
 
-      <div class="settings-section card settings-danger-zone">
-        <div class="settings-section-title danger">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          Danger Zone
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <span>Reset database</span>
-            <span class="subtle">Delete everything including schema. Useful if you want the latest DB version to recreate from scratch.</span>
+    document.getElementById('addQuestBtn')?.addEventListener('click', () => this.showQuestForm());
+
+    const saveDaily = async () => {
+      const dailyGoal = (await Storage.getAllGoals()).find((g) => g.id === 'daily' && g.active);
+      if (!dailyGoal) return;
+      const t = parseFloat(document.getElementById('dailyTargetInput')?.value);
+      const u = document.getElementById('dailyUnitInput')?.value;
+      if (!t || t <= 0) return this.toast('Enter a valid target', 'error');
+      dailyGoal.target = t;
+      dailyGoal.unit = u;
+      dailyGoal.kind = (u === 'hours' || u === 'minutes') ? 'study' : 'task';
+      if (dailyGoal.kind === 'task') dailyGoal.metric = dailyGoal.metric || 'notesReviewed';
+      dailyGoal.progress = 0;
+      dailyGoal.completedDate = undefined;
+      dailyGoal.forDate = getToday();
+      await Storage.saveGoal(dailyGoal);
+      this.toast('Daily quest updated', 'success');
+      this.renderGoals();
+    };
+    document.getElementById('saveDailyBtn')?.addEventListener('click', saveDaily);
+    document.getElementById('rerollDailyBtn')?.addEventListener('click', async () => {
+      const fresh = buildDailyQuest(getToday());
+      fresh.forDate = getToday();
+      await Storage.saveGoal(fresh);
+      this.toast('New daily quest rolled!', 'success');
+      this.renderGoals();
+    });
+    document.getElementById('createDailyBtn')?.addEventListener('click', async () => {
+      const fresh = buildDailyQuest(getToday());
+      await Storage.saveGoal(fresh);
+      this.renderGoals();
+    });
+
+    el.querySelectorAll('[data-quest-edit]').forEach((b) => {
+      b.addEventListener('click', () => this.showQuestForm(goals.find((g) => g.id === b.dataset.questEdit)));
+    });
+    el.querySelectorAll('[data-quest-delete]').forEach((b) => {
+      b.addEventListener('click', () => this.deleteQuest(b.dataset.questDelete));
+    });
+    el.querySelectorAll('[data-quest-link]').forEach((b) => {
+      b.addEventListener('click', () => {
+        this.pendingGoalId = b.dataset.questLink;
+        history.pushState(null, '', '#timer');
+        this.handleRoute();
+        this.toast('Pick this quest in the Timer to earn progress', 'success');
+      });
+    });
+    el.querySelectorAll('[data-quest-how]').forEach((b) => {
+      b.addEventListener('click', () => this.showQuestHowTo(b.dataset.questHow, b.dataset.questLabel));
+    });
+  },
+
+  dailyQuestEditorHtml(daily, sessions) {
+    const isStudy = daily.kind === 'study' || daily.unit === 'hours' || daily.unit === 'minutes';
+    const goalHours = isStudy ? (daily.target || 0) : 0;
+    const h = Math.floor(goalHours);
+    const m = Math.round((goalHours - h) * 60);
+    const targetVal = isStudy ? (h > 0 ? h : '') : (daily.target || '');
+    const isHours = daily.unit !== 'minutes';
+    const unitLabel = daily.unit === 'minutes' ? 'min' : daily.unit === 'sessions' ? 'sessions' : 'h';
+    const pct = Math.min(100, Math.round(this.dailyProgress(daily, sessions) * 100));
+    const done = pct >= 100;
+    return `
+      <div class="card mt daily-quest-editor">
+        <div class="daily-quest-editor-main">
+          <div class="quest-icon daily-quest-editor-ico">🎯</div>
+          <div class="daily-quest-editor-body">
+            <div class="flex justify-between items-center gap">
+              <h2>Daily quest</h2>
+              <span class="flex gap-xs items-center">
+                ${!isStudy ? `<button class="btn btn-ghost btn-sm" data-quest-how="${daily.metric}" data-quest-label="${escapeHtml(daily.label || '')}" aria-label="How to complete">How?</button>` : ''}
+                <span class="badge badge-primary">+${daily.bonusXp || 0} XP bonus</span>
+              </span>
+            </div>
+            <p class="muted text-sm mt-xs">${escapeHtml(daily.description || daily.label || 'Your daily challenge.')}</p>
+            <div class="progress-bar mt-sm"><div class="progress-fill ${done ? 'success' : ''}" style="width:${pct}%"></div></div>
+            <div class="muted text-xs mt-xs">${done ? '✅ Complete today!' : `${pct}% · ${Math.floor(this.questCurrentValue(daily) * 10) / 10} / ${daily.target || 0} ${unitLabel}`}</div>
           </div>
-          <button class="btn btn-danger btn-sm" id="resetDbBtn">Reset DB</button>
         </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <span>Clear all data</span>
-            <span class="subtle">Permanently delete all subjects, sessions, notes and goals</span>
+        <div class="daily-quest-editor-controls">
+          <div class="form-group daily-quest-field">
+            <label class="text-xs muted">Target</label>
+            <input type="number" id="dailyTargetInput" min="0.1" step="${isStudy ? (isHours ? 0.5 : 5) : 1}" value="${targetVal}">
           </div>
-          <button class="btn btn-danger btn-sm" id="clearAllBtn">Clear All</button>
+          ${isStudy ? `
+          <div class="form-group daily-quest-field">
+            <label class="text-xs muted">Unit</label>
+            <select id="dailyUnitInput">
+              <option value="hours" ${isHours ? 'selected' : ''}>Hours</option>
+              <option value="minutes" ${!isHours ? 'selected' : ''}>Minutes</option>
+            </select>
+          </div>` : `
+          <div class="form-group daily-quest-field">
+            <label class="text-xs muted">Unit</label>
+            <select id="dailyUnitInput">
+              <option value="${escapeHtml(daily.unit)}" selected>${escapeHtml(daily.unit)}</option>
+            </select>
+          </div>`}
+          <div class="daily-quest-actions">
+            <button class="btn btn-primary btn-sm" id="saveDailyBtn">Save</button>
+            <button class="btn btn-ghost btn-sm" id="rerollDailyBtn" title="Generate a new daily quest">↻ Reroll</button>
+          </div>
         </div>
       </div>
     `;
+  },
 
-    document.getElementById('themeLight')?.addEventListener('click', () => { this.setTheme('light'); this.renderSettings(); });
-    document.getElementById('themeDark')?.addEventListener('click', () => { this.setTheme('dark'); this.renderSettings(); });
+  questCardHtml(goal, progress, opts = {}) {
+    const pct = Math.min(100, Math.round(progress * 100));
+    const done = pct >= 100;
+    const diff = goal.difficulty || 'normal';
+    const icon = goal.icon || this.questIconFor(diff);
+    const subjectName = opts.subjects
+      ? (opts.subjects.find((s) => s.id === goal.subjectId) || {}).name
+      : '';
+    const isTracking = opts.activeGoalId && opts.activeGoalId === goal.id;
+    const unitLabel = goal.unit === 'minutes' ? 'min' : goal.unit === 'sessions' ? 'sessions' : 'h';
+    const targetLabel = goal.target != null ? `${goal.target} ${unitLabel}` : '';
+    return `
+      <div class="card quest-card quest-${diff} ${done ? 'quest-done' : ''}">
+        <div class="quest-card-top">
+          <div class="quest-icon">${icon}</div>
+            <div class="quest-card-title">
+              <div class="font-medium flex items-center gap-xs">${escapeHtml(goal.label || 'Quest')} ${isTracking ? '<span class="badge badge-success">Tracking</span>' : ''}</div>
+            <div class="muted text-sm">${escapeHtml((goal.type === 'daily' ? 'Daily quest' : (subjectName || this.questDiffLabel(diff)) + (targetLabel ? ' · ' + targetLabel : '')))}</div>
+          </div>
+          ${goal.type === 'daily' ? '' : `
+            <div class="quest-card-actions">
+              <button class="btn btn-ghost btn-sm" data-quest-edit="${goal.id}" aria-label="Edit">✎</button>
+              <button class="btn btn-ghost btn-sm" data-quest-delete="${goal.id}" aria-label="Delete">🗑</button>
+            </div>`}
+        </div>
+        <div class="quest-progress">
+          <div class="progress-bar"><div class="progress-fill ${done ? 'success' : ''}" style="width:${pct}%"></div></div>
+          <div class="quest-progress-label">${done ? '✅ Complete!' : `${Math.floor(this.questCurrentValue(goal) * 10) / 10} / ${goal.target || 0} ${unitLabel}`}</div>
+        </div>
+        ${goal.type === 'daily' ? '' : `
+          <div class="flex gap-xs mt-sm">
+            ${goal.metric ? `<button class="btn btn-ghost btn-sm" data-quest-how="${goal.metric}" data-quest-label="${escapeHtml(goal.label || '')}">How to complete</button>` : ''}
+            <button class="btn btn-ghost btn-sm btn-block" data-quest-link="${goal.id}">Earn in Timer →</button>
+          </div>`}
+      </div>
+    `;
+  },
+
+  questDiffLabel(d) {
+    return { easy: 'Easy quest', normal: 'Normal quest', hard: 'Hard quest', epic: 'Epic quest' }[d] || 'Quest';
+  },
+
+  questIconFor(d) {
+    return {
+      easy: '⭐', normal: '🎯', hard: '⚔️', epic: '🐉',
+    }[d] || '🎯';
+  },
+
+  async showQuestForm(quest) {
+    const subjects = await Storage.getAllSubjects();
+    const isEdit = !!quest;
+    const data = quest || { id: generateId(), type: 'quest', label: '', target: 1, unit: 'hours', difficulty: 'normal', active: true, progress: 0, order: 0 };
+    this.openModal(`
+      <div class="modal-overlay">
+        <div class="modal">
+          <div class="modal-header"><h2>${isEdit ? 'Edit' : 'New'} Quest</h2></div>
+          <form id="questForm" class="p">
+            <input type="hidden" id="questId" value="${data.id}">
+            <div class="form-group">
+              <label>Quest name</label>
+              <input type="text" id="questLabel" required value="${escapeHtml(data.label || '')}" placeholder="e.g. Conquer Calculus">
+            </div>
+            <div class="form-group">
+              <label>Subject (optional)</label>
+              <select id="questSubject">
+                <option value="">No subject</option>
+                ${subjects.map((s) => `<option value="${s.id}" ${data.subjectId === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="goal-inputs">
+              <div class="form-group">
+                <label class="text-xs muted">Target</label>
+                <input type="number" id="questTarget" min="0.1" step="0.5" value="${data.target || 1}" required>
+              </div>
+            <div class="form-group">
+              <label class="text-xs muted">Unit</label>
+              <select id="questUnit">
+                <option value="hours" ${data.unit === 'hours' ? 'selected' : ''}>Hours</option>
+                <option value="minutes" ${data.unit === 'minutes' ? 'selected' : ''}>Minutes</option>
+                <option value="sessions" ${data.unit === 'sessions' ? 'selected' : ''}>Sessions</option>
+              </select>
+            </div>
+            </div>
+            <div class="form-group">
+              <label class="text-xs muted">Track over</label>
+              <select id="questScope">
+                <option value="" ${!data.scope ? 'selected' : ''}>Lifetime</option>
+                <option value="weekly" ${data.scope === 'weekly' ? 'selected' : ''}>This week</option>
+                <option value="subject" ${data.scope === 'subject' ? 'selected' : ''}>This subject only</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Difficulty</label>
+              <div class="quest-diff-pick">
+                ${['easy', 'normal', 'hard', 'epic'].map((d) => `
+                  <button type="button" class="quest-diff-opt quest-${d} ${data.difficulty === d ? 'selected' : ''}" data-diff="${d}">
+                    <span class="quest-diff-ico">${this.questIconFor(d)}</span>${this.questDiffLabel(d)}
+                  </button>`).join('')}
+              </div>
+              <input type="hidden" id="questDiff" value="${data.difficulty || 'normal'}">
+            </div>
+            <div class="flex justify-end gap mt">
+              <button type="button" class="btn btn-ghost" id="cancelModal">Cancel</button>
+              <button type="submit" class="btn btn-primary">Save quest</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `);
+
+    document.querySelectorAll('.quest-diff-opt').forEach((b) => {
+      b.addEventListener('click', () => {
+        document.querySelectorAll('.quest-diff-opt').forEach((x) => x.classList.remove('selected'));
+        b.classList.add('selected');
+        document.getElementById('questDiff').value = b.dataset.diff;
+      });
+    });
+    document.getElementById('cancelModal').addEventListener('click', () => this.closeModals());
+    document.getElementById('questForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const label = document.getElementById('questLabel').value.trim();
+      if (!label) return this.toast('Name your quest', 'error');
+      const existing = isEdit ? quest : null;
+      const saved = {
+        id: data.id,
+        type: 'quest',
+        label,
+        subjectId: document.getElementById('questSubject').value || undefined,
+        target: Math.max(0.1, parseFloat(document.getElementById('questTarget').value) || 1),
+        unit: document.getElementById('questUnit').value,
+        scope: document.getElementById('questScope').value || undefined,
+        difficulty: document.getElementById('questDiff').value,
+        active: true,
+        progress: existing ? (existing.progress || 0) : 0,
+        order: existing ? (existing.order || 0) : (Date.now()),
+        createdAt: existing ? existing.createdAt : new Date().toISOString(),
+      };
+      await Storage.saveGoal(saved);
+      this.closeModals();
+      this.toast('Quest saved', 'success');
+      this.renderGoals();
+    });
+  },
+
+  async deleteQuest(id) {
+    if (!confirm('Abandon this quest?')) return;
+    await Storage.deleteGoal(id);
+    this.toast('Quest removed', 'success');
+    this.renderGoals();
+  },
+
+  async renderSettings() {
+    const el = document.getElementById('pageContent');
+    const [goals, subjects] = await Promise.all([Storage.getAllGoals(), Storage.getAllSubjects()]);
+    const dailyGoal = goals.find((g) => g.type === 'daily' && g.active);
+
+    const sections = [
+      {
+        id: 'appearance', icon: '<circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>',
+        title: 'Appearance',
+        keys: ['theme', 'accentColor', 'fontSize', 'density', 'reduceMotion'],
+      },
+      {
+        id: 'locale', icon: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+        title: 'Language & Format',
+        keys: ['language', 'clock', 'weekStart'],
+      },
+      {
+        id: 'timer', icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+        title: 'Focus Timer',
+        keys: ['focusLength', 'breakLength', 'rounds', 'longBreakLength', 'longBreakEvery', 'autoStartBreaks', 'autoStartFocus', 'timerSound', 'timerVolume', 'timerVibrate', 'timerPresets'],
+      },
+      {
+        id: 'notifications', icon: '<path d="M18 8A6 6 0 0 0 6 8c0 7 3 9 3 9h6s3-2 3-9z"/><path d="M12 18v-4"/><path d="M8 18v-1"/><path d="M16 18v-3"/>',
+        title: 'Notifications',
+        keys: ['notificationsEnabled', 'notifySessionReminders', 'notifyPhaseEnd', 'notifyGoalReached', 'notifyLeadTime', 'notifyQuietStart', 'notifyQuietEnd', 'testNotification'],
+      },
+      {
+        id: 'notes', icon: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+        title: 'Notes & Editor',
+        keys: ['noteDefaultSubject', 'noteAutosave', 'noteSpellcheck', 'noteOfflineMath', 'noteDefaultLens', 'affinityTightness', 'affinityMaxGroup'],
+      },
+      {
+        id: 'goals', icon: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+        title: 'Quests',
+        keys: ['goalUnit', 'streakMinMinutes', 'streakFreeze', 'goalCelebrations', 'goalCelebrationsReset'],
+      },
+      {
+        id: 'data', icon: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
+        title: 'Data & Backup',
+        keys: ['dataExportFormat', 'dataImportMode', 'dataAutoBackup', 'exportData', 'importData', 'storageUsage', 'backupNow'],
+      },
+      {
+        id: 'about', icon: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+        title: 'About & Maintenance',
+        keys: ['aboutVersion', 'aboutUpdate', 'aboutClearCache', 'resetSettings'],
+      },
+      {
+        id: 'danger', icon: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+        title: 'Danger Zone', danger: true,
+        keys: ['clearAll', 'resetDb'],
+      },
+    ];
+
+    const activeTab = this.activeSettingsTab || sections[0].id;
+
+    const html = [];
+    html.push(`
+      <div class="settings-header">
+        <h1>Settings</h1>
+        <p class="muted">Your preferences adapt instantly across the app.</p>
+      </div>
+      <div class="settings-nav" id="settingsNav">
+        ${sections.map((s) => `<button class="settings-nav-btn ${s.id === activeTab ? 'active' : ''}" data-section="${s.id}">${s.title}</button>`).join('')}
+      </div>
+    `);
+
+    for (const sec of sections) {
+      const hidden = sec.id !== activeTab ? 'hidden' : '';
+      html.push(`
+        <section class="settings-section card ${sec.danger ? 'settings-danger-zone' : ''}" id="section-${sec.id}" ${hidden}>
+          <div class="settings-section-title ${sec.danger ? 'danger' : ''}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${sec.icon}</svg>
+            ${sec.title}
+          </div>
+          ${sec.keys.map((k) => this.settingsRowFor(k, { goals, dailyGoal, subjects })).join('')}
+        </section>
+      `);
+    }
+    el.innerHTML = html.join('');
+
+    // Wire every control.
+    this.bindSettingsControls({ goals, dailyGoal, subjects });
+  },
+
+  settingsRowFor(key, ctx = {}) {
+    const def = Settings.SCHEMA[key];
+    if (!def) return '';
+    const val = Settings.get(key);
+    const label = def.label || key;
+    const help = def.help ? `<span class="subtle">${escapeHtml(def.help)}</span>` : '';
+    let control = '';
+    let extraClass = '';
+
+    if (def.type === 'theme') {
+      const opts = def.options;
+      const icons = { light: '<circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>', dark: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>', system: '<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>' };
+      const labels = { light: 'Light', dark: 'Dark', system: 'System' };
+      control = `<div class="settings-theme-btns" data-control="${key}">` + opts.map((o) => `
+        <button class="settings-theme-btn ${val === o ? 'active' : ''}" data-value="${o}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icons[o]}</svg>
+          ${labels[o]}
+        </button>`).join('') + `</div>`;
+    } else if (def.type === 'select') {
+      let opts = def.options;
+      if (def.dynamic === 'subjects') {
+        opts = { '': 'No subject' };
+        (ctx.subjects || []).forEach((s) => { opts[s.id] = s.name; });
+      }
+      const entries = Object.entries(opts);
+      control = `<select class="form-control" data-control="${key}" style="max-width:260px">` +
+        entries.map(([v, t]) => `<option value="${v}" ${String(val) === String(v) ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('') +
+        `</select>`;
+    } else if (def.type === 'switch') {
+      control = `<button class="switch ${val ? 'on' : ''}" data-control="${key}" role="switch" aria-checked="${val}" aria-label="${escapeHtml(label)}"><span class="switch-knob"></span></button>`;
+    } else if (def.type === 'number' || def.type === 'range') {
+      const unit = def.unit ? `<span class="unit">${def.unit}</span>` : '';
+      const attrs = def.type === 'range'
+        ? `type="range" min="${def.min}" max="${def.max}" step="${def.step}"`
+        : `type="number" min="${def.min}" max="${def.max}" step="${def.step}"`;
+      control = `<div class="settings-num-wrap"><input ${attrs} class="form-control" data-control="${key}" value="${val}" style="max-width:160px">${unit}<span class="settings-num-val" data-numval="${key}">${def.unit === '%' ? val + '%' : val}</span></div>`;
+    } else if (def.type === 'text') {
+      control = `<input type="text" class="form-control" data-control="${key}" value="${escapeHtml(val)}" style="max-width:120px" inputmode="numeric" pattern="[0-9]{1,2}:[0-9]{2}">`;
+    } else if (def.type === 'button') {
+      const text = {
+        testNotification: 'Send test', aboutVersion: 'v' + APP_VERSION, aboutUpdate: 'Check now',
+        aboutClearCache: 'Clear cache', goalCelebrationsReset: 'Reset', resetSettings: 'Reset all',
+        clearAll: 'Clear All', resetDb: 'Reset DB', backupNow: 'Back up now', exportData: 'Export',
+        importData: 'Import', storageUsage: 'Refresh',
+      }[key] || 'Action';
+      const cls = key === 'clearAll' || key === 'resetDb' ? 'btn-danger' : (def.group === 'about' ? 'btn-ghost' : 'btn-primary');
+      control = `<button class="btn btn-sm ${cls}" data-action="${key}">${text}</button>`;
+    } else if (def.type === 'custom') {
+      if (key === 'timerPresets') {
+        const presets = val || [];
+        control = `<div class="settings-presets" data-control="timerPresets">` +
+          (presets.length ? presets.map((p, i) => `<button class="btn btn-ghost btn-sm" data-preset-apply="${i}">${escapeHtml(p.name)}</button>`).join('') : '<span class="subtle text-sm">No saved presets</span>') +
+          `</div>`;
+      } else if (key === 'dailyGoalInline') {
+        const dg = ctx.dailyGoal;
+        control = `<div class="settings-row-control"><input type="number" id="dailyGoalInput" min="0.5" step="0.5" value="${dg ? dg.target : ''}" placeholder="e.g. 2" style="width:90px;text-align:center"><button class="btn btn-primary btn-sm" id="saveGoalBtn">Save</button></div>`;
+      } else {
+        control = '';
+      }
+    }
+
+    if (key === 'dailyGoalInline') {
+      return `<div class="settings-row"><div class="settings-row-info"><span>Daily study goal</span><span class="subtle">Target hours of study per day</span></div>${control}</div>`;
+    }
+    if (key === 'timerPresets') {
+      return `<div class="settings-row"><div class="settings-row-info"><span>Saved presets</span><span class="subtle">Tap to apply · saved from the Timer</span></div>${control}</div>`;
+    }
+    if (key === 'testNotification') {
+      return `<div class="settings-row"><div class="settings-row-info"><span>Test notification</span><span class="subtle">Send a sample alert now</span></div>${control}</div>`;
+    }
+    if (key === 'storageUsage') {
+      return `<div class="settings-row"><div class="settings-row-info"><span>Storage used</span><span class="subtle">Local browser storage estimate</span></div><span class="muted" id="storageUsageVal">—</span></div>`;
+    }
+
+    return `
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <span>${escapeHtml(label)}</span>
+          ${help}
+        </div>
+        <div class="settings-row-control">${control}</div>
+      </div>`;
+  },
+
+  bindSettingsControls(ctx) {
+    // Theme / selects / numbers / ranges / switches
+    document.querySelectorAll('#pageContent [data-control]').forEach((node) => {
+      const key = node.dataset.control;
+      const def = Settings.SCHEMA[key];
+      if (!def) return;
+      if (def.type === 'theme') {
+        node.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+          Settings.set(key, b.dataset.value);
+          this.renderSettings();
+        }));
+      } else if (def.type === 'select') {
+        node.addEventListener('change', () => Settings.set(key, node.value));
+      } else if (def.type === 'switch') {
+        node.addEventListener('click', () => {
+          Settings.set(key, !Settings.get(key));
+          node.classList.toggle('on', Settings.get(key));
+          node.setAttribute('aria-checked', String(Settings.get(key)));
+        });
+      } else if (def.type === 'number' || def.type === 'range') {
+        node.addEventListener('input', () => {
+          const v = def.type === 'range' ? Number(node.value) : Number(node.value);
+          Settings.set(key, v);
+          const out = document.querySelector(`[data-numval="${key}"]`);
+          if (out) out.textContent = def.unit === '%' ? node.value + '%' : node.value;
+        });
+        node.addEventListener('change', () => Settings.set(key, Number(node.value)));
+      } else if (def.type === 'text') {
+        node.addEventListener('change', () => Settings.set(key, node.value));
+      }
+    });
+
+    // Daily goal inline save
     document.getElementById('saveGoalBtn')?.addEventListener('click', async () => {
       const target = parseFloat(document.getElementById('dailyGoalInput').value);
       if (!target || target <= 0) return this.toast('Please enter a valid number', 'error');
-      await Storage.saveGoal({ id: 'daily', type: 'daily', target, unit: 'hours', active: true });
+      await Storage.saveGoal({ id: 'daily', type: 'daily', target, unit: Settings.get('goalUnit') || 'hours', active: true });
       this.toast('Daily goal saved', 'success');
     });
-    document.getElementById('exportBtn')?.addEventListener('click', async () => {
-      const data = await Storage.exportAll();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `studyflow-export-${getToday()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      this.toast('Data exported', 'success');
-    });
-    document.getElementById('importFile')?.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      try {
-        const text = await file.text();
-        const data = JSON.parse(text);
-        await Storage.importAll(data);
-        this.toast('Data imported successfully', 'success');
-        this.handleRoute();
-      } catch {
-        this.toast('Invalid import file', 'error');
-      }
-    });
-    document.getElementById('clearAllBtn')?.addEventListener('click', () => {
-      const input = prompt('Type DELETE to confirm clearing all data:');
-      if (input === 'DELETE') {
-        Storage.clearAll().then(() => {
-          this.toast('All data cleared', 'success');
-          this.handleRoute();
+
+    // Timer presets apply
+    document.querySelectorAll('[data-preset-apply]').forEach((b) => b.addEventListener('click', async () => {
+      const p = (Settings.get('timerPresets') || [])[parseInt(b.dataset.presetApply, 10)];
+      if (!p) return;
+      await Settings.setMany({ focusLength: p.focusLength, breakLength: p.breakLength, rounds: p.rounds, longBreakLength: p.longBreakLength, longBreakEvery: p.longBreakEvery });
+      if (this.engine) this.engine.configure(await this.loadFocusConfig());
+      this.toast('Preset applied: ' + p.name, 'success');
+    }));
+
+    // Action buttons — selected by [data-action], since they render without an id.
+    const onAction = (action, fn) => document.querySelector(`[data-action="${action}"]`)?.addEventListener('click', fn);
+    onAction('testNotification', () => this.sendTestNotification());
+    onAction('exportData', () => this.exportData());
+    onAction('importData', () => this.importDataFile());
+    onAction('backupNow', () => this.backupNow());
+    onAction('storageUsage', () => this.refreshStorageUsage());
+    onAction('aboutVersion', () => this.toast('StudyFlow v' + APP_VERSION, 'success'));
+    onAction('aboutUpdate', () => this.checkForUpdates());
+    onAction('aboutClearCache', () => this.clearAppCache());
+    onAction('goalCelebrationsReset', () => { localStorage.removeItem('goalCelebrations'); this.toast('Celebration flags reset', 'success'); });
+    onAction('resetSettings', () => this.confirmDestructive('Reset all settings to defaults?', async () => { await Settings.resetAll(); this.toast('Settings reset', 'success'); this.renderSettings(); }));
+    onAction('clearAll', () => this.confirmDestructive('Type DELETE to confirm clearing ALL data. This cannot be undone.', async () => {
+      await Storage.clearAll(); this.toast('All data cleared', 'success'); this.handleRoute();
+    }, 'DELETE'));
+    onAction('resetDb', () => this.confirmDestructive('Type RESET to confirm database reset.', async () => {
+      try { await Storage.resetDatabase(); this.toast('Database reset complete', 'success'); this.handleRoute(); }
+      catch { this.toast('Reset failed. Close other tabs and retry.', 'error'); }
+    }, 'RESET'));
+
+    this.refreshStorageUsage();
+    this.renderSettingsNav();
+  },
+
+  renderSettingsNav() {
+    const allSections = document.querySelectorAll('[id^="section-"]');
+    document.querySelectorAll('.settings-nav-btn').forEach((b) => {
+      b.addEventListener('click', () => {
+        const id = b.dataset.section;
+        this.activeSettingsTab = id;
+        document.querySelectorAll('.settings-nav-btn').forEach((x) => x.classList.toggle('active', x === b));
+        allSections.forEach((sec) => {
+          sec.hidden = sec.id !== 'section-' + id;
         });
-      }
-    });
-    document.getElementById('resetDbBtn')?.addEventListener('click', async () => {
-      const input = prompt('Type RESET to confirm database reset:');
-      if (input === 'RESET') {
-        try {
-          await Storage.resetDatabase();
-          this.toast('Database reset complete', 'success');
-          this.handleRoute();
-        } catch {
-          this.toast('Reset failed. Please close all tabs and try again.', 'error');
-        }
-      }
-    });
-    const notifToggle = document.getElementById('notificationsToggle');
-    if (notifToggle) {
-      const updateNotifToggle = () => {
-        if (!('Notification' in window)) {
-          notifToggle.textContent = 'Unavailable';
-          notifToggle.disabled = true;
-          return;
-        }
-        const stored = localStorage.getItem('notificationsEnabled') !== 'false';
-        const granted = Notification.permission === 'granted';
-        const denied = Notification.permission === 'denied';
-        const enabled = stored && granted;
-        notifToggle.textContent = denied ? 'Blocked' : enabled ? 'Disable' : 'Enable';
-        notifToggle.disabled = denied;
-        notifToggle.classList.toggle('btn-ghost', !enabled && !denied);
-        notifToggle.classList.toggle('btn-primary', enabled);
-        notifToggle.classList.toggle('btn-danger', denied);
-      };
-      updateNotifToggle();
-      notifToggle.addEventListener('click', async () => {
-        const current = localStorage.getItem('notificationsEnabled') !== 'false';
-        if (current) {
-          localStorage.setItem('notificationsEnabled', 'false');
-          await Storage.setSetting('notificationsEnabled', 'false');
-          this.toast('Notifications disabled. Browser permission remains granted — revoke in site settings if needed.', 'success');
-        } else {
-          if (Notification.permission === 'denied') {
-            this.toast('Notifications blocked in browser. Please enable in site settings.', 'error');
-            return;
-          }
-          localStorage.setItem('notificationsEnabled', 'true');
-          await Storage.setSetting('notificationsEnabled', 'true');
-          await this.requestNotificationPermission();
-          if (Notification.permission === 'granted') {
-            this.toast('Notifications enabled', 'success');
-          }
-        }
-        updateNotifToggle();
       });
-      if ('permissions' in navigator && 'query' in navigator.permissions) {
-        navigator.permissions.query({ name: 'notifications' }).then((status) => {
-          status.onchange = () => {
-            if (Notification.permission === 'granted') {
-              localStorage.setItem('notificationsEnabled', 'true');
-            } else if (Notification.permission === 'denied') {
-              localStorage.setItem('notificationsEnabled', 'false');
-            }
-            updateNotifToggle();
-          };
-        }).catch(() => {});
-      }
+    });
+  },
+
+  refreshStorageUsage() {
+    const out = document.getElementById('storageUsageVal');
+    if (!out || !navigator.storage || !navigator.storage.estimate) { if (out) out.textContent = 'n/a'; return; }
+    navigator.storage.estimate().then((e) => {
+      const mb = e.usage ? (e.usage / (1024 * 1024)).toFixed(2) : '0';
+      out.textContent = `${mb} MB used`;
+    }).catch(() => { out.textContent = 'n/a'; });
+  },
+
+  confirmDestructive(message, onConfirm, match) {
+    if (match) {
+      const input = prompt(message);
+      if (input === match) onConfirm();
+    } else {
+      if (confirm(message)) onConfirm();
     }
   },
 
   calculateStreak(sessions) {
     if (sessions.length === 0) return 0;
-    const days = new Set(sessions.map((s) => s.date));
-    const dayList = Array.from(days).sort().reverse();
+    const minSec = (Settings.get('streakMinMinutes') || 1) * 60;
+    const byDay = {};
+    for (const s of sessions) {
+      if (!s.date) continue;
+      byDay[s.date] = (byDay[s.date] || 0) + (s.duration || 0);
+    }
+    const days = new Set(Object.keys(byDay).filter((d) => byDay[d] >= minSec));
+    const dsOf = (date) => date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
     let streak = 0;
     const today = new Date();
     let checkDate = new Date(today);
-    if (!days.has(getToday())) {
-      checkDate.setDate(checkDate.getDate() - 1);
-    }
+    // If today doesn't qualify, start counting from yesterday.
+    if (!days.has(dsOf(today))) checkDate.setDate(checkDate.getDate() - 1);
+    let freezeUsed = false;
     while (true) {
-      const ds = checkDate.getFullYear() + '-' + String(checkDate.getMonth() + 1).padStart(2, '0') + '-' + String(checkDate.getDate()).padStart(2, '0');
+      const ds = dsOf(checkDate);
       if (days.has(ds)) {
         streak++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      } else if (Settings.get('streakFreeze') && !freezeUsed) {
+        freezeUsed = true; // forgive one missed day
         checkDate.setDate(checkDate.getDate() - 1);
       } else {
         break;
@@ -2635,19 +3612,13 @@ const app = {
 
   initNotifications() {
     if (!('Notification' in window)) return;
-    const stored = localStorage.getItem('notificationsEnabled');
-    if (stored === 'true' || stored === null) {
-      if (Notification.permission === 'granted') {
-        this.registerPeriodicSync();
-        Storage.setSetting('notificationsEnabled', 'true');
-      } else if (Notification.permission === 'denied') {
-        localStorage.setItem('notificationsEnabled', 'false');
-        Storage.setSetting('notificationsEnabled', 'false');
-      } else if (Notification.permission === 'default') {
-        this.requestNotificationPermission();
-      }
-    } else {
-      Storage.setSetting('notificationsEnabled', 'false');
+    // Reflect current setting + browser permission into the stored flag.
+    if (Settings.get('notificationsEnabled') && Notification.permission === 'granted') {
+      this.registerPeriodicSync();
+    } else if (Notification.permission === 'denied') {
+      Settings.set('notificationsEnabled', false);
+    } else if (Settings.get('notificationsEnabled') && Notification.permission === 'default') {
+      this.requestNotificationPermission();
     }
     setInterval(() => {
       this.checkUpcomingSessions();
@@ -2660,10 +3631,17 @@ const app = {
     if (!('Notification' in window)) return;
     if (Notification.permission === 'denied') {
       this.toast('Notifications blocked in browser. Please enable in site settings.', 'error');
+      await Settings.set('notificationsEnabled', false);
       return;
     }
     if (Notification.permission === 'default') {
-      await Notification.requestPermission();
+      const res = await Notification.requestPermission();
+      if (res === 'granted') {
+        await Settings.set('notificationsEnabled', true);
+        this.toast('Notifications enabled', 'success');
+      } else {
+        await Settings.set('notificationsEnabled', false);
+      }
     }
     await this.registerPeriodicSync();
   },
@@ -2683,29 +3661,46 @@ const app = {
 
   async pingSW() {
     if (!('serviceWorker' in navigator) || Notification.permission !== 'granted') return;
-    if (localStorage.getItem('notificationsEnabled') === 'false') return;
+    if (!Settings.get('notificationsEnabled')) return;
     try {
       const reg = await navigator.serviceWorker.ready;
       reg.active?.postMessage('CHECK_SESSIONS');
     } catch { /* ignore */ }
   },
 
+  inQuietHours() {
+    const now = new Date();
+    const cur = now.getHours() * 60 + now.getMinutes();
+    const parse = (str) => {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(str || '');
+      if (!m) return null;
+      return Math.min(1439, parseInt(m[1], 10) * 60 + parseInt(m[2], 10));
+    };
+    const start = parse(Settings.get('notifyQuietStart'));
+    const end = parse(Settings.get('notifyQuietEnd'));
+    if (start == null || end == null) return false;
+    if (start <= end) return cur >= start && cur < end;
+    return cur >= start || cur < end; // wraps midnight
+  },
+
   async checkUpcomingSessions() {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    if (localStorage.getItem('notificationsEnabled') === 'false') return;
+    if (!Settings.get('notificationsEnabled') || !Settings.get('notifySessionReminders')) return;
+    if (this.inQuietHours()) return;
     const sessions = await Storage.getAllSessions();
     const now = new Date();
     const today = getToday();
+    const lead = Settings.get('notifyLeadTime') || 15;
     const upcoming = sessions.filter((s) => {
       if (s.date !== today || !s.startTime || s.endTime || s.notified) return false;
       const start = new Date(s.startTime);
       const diffMin = (start.getTime() - now.getTime()) / 60000;
-      return diffMin > 0 && diffMin <= 15;
+      return diffMin > 0 && diffMin <= lead;
     });
     for (const s of upcoming) {
       const subjects = await Storage.getAllSubjects();
       const subj = subjects.find((x) => x.id === s.subjectId);
-      const start = formatTime(s.startTime);
+      const start = Settings.fmtTime(s.startTime);
       this.showNotification(
         'Study session starting soon',
         `${subj ? subj.name : 'Study'} at ${start}`
@@ -2721,6 +3716,132 @@ const app = {
     } catch {
       // Notification API not available
     }
+  },
+
+  async sendTestNotification() {
+    if (!('Notification' in window)) { this.toast('Notifications unsupported', 'error'); return; }
+    if (Notification.permission !== 'granted') {
+      await this.requestNotificationPermission();
+      if (Notification.permission !== 'granted') return;
+    }
+    if (this.inQuietHours()) { this.toast('In quiet hours — would not alert now', 'success'); return; }
+    this.showNotification('StudyFlow test', 'Notifications are working. 🎉');
+    playPhaseSound('phase');
+    this.toast('Test notification sent', 'success');
+  },
+
+  /* ---------- Data: export / import / backup ---------- */
+  async exportData() {
+    const format = Settings.get('dataExportFormat');
+    const data = await Storage.exportAll();
+    if (format === 'csv') {
+      const rows = [['date', 'subject', 'start', 'end', 'duration_min', 'source']];
+      const subjects = await Storage.getAllSubjects();
+      const nameById = new Map(subjects.map((s) => [s.id, s.name]));
+      (data.sessions || []).forEach((s) => rows.push([
+        s.date, nameById.get(s.subjectId) || '', s.startTime || '', s.endTime || '',
+        Math.round((s.duration || 0) / 60), s.source || '',
+      ]));
+      this.downloadFile(this.toCsv(rows), `studyflow-sessions-${getToday()}.csv`, 'text/csv');
+    } else if (format === 'markdown') {
+      const md = (data.notes || []).map((n) => `# ${n.title}\n\n${n.content || ''}\n`).join('\n---\n\n');
+      this.downloadFile(md, `studyflow-notes-${getToday()}.md`, 'text/markdown');
+    } else {
+      this.downloadFile(JSON.stringify(data, null, 2), `studyflow-export-${getToday()}.json`, 'application/json');
+    }
+    this.toast('Data exported', 'success');
+  },
+
+  toCsv(rows) {
+    return rows.map((r) => r.map((c) => {
+      const s = String(c ?? '');
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(',')).join('\n');
+  },
+
+  downloadFile(text, filename, type) {
+    const blob = new Blob([text], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  importDataFile() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.addEventListener('change', async () => {
+      const file = input.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        if (Settings.get('dataImportMode') === 'merge') {
+          await this.mergeImport(data);
+        } else {
+          await Storage.importAll(data);
+        }
+        this.toast('Data imported successfully', 'success');
+        this.handleRoute();
+      } catch {
+        this.toast('Invalid import file', 'error');
+      }
+    });
+    input.click();
+  },
+
+  async mergeImport(data) {
+    const existing = await Storage.exportAll();
+    const merge = (a, b) => {
+      const map = new Map((a || []).map((x) => [x.id, x]));
+      (b || []).forEach((x) => map.set(x.id, x));
+      return [...map.values()];
+    };
+    const merged = {
+      subjects: merge(existing.subjects, data.subjects),
+      sessions: merge(existing.sessions, data.sessions),
+      notes: merge(existing.notes, data.notes),
+      goals: merge(existing.goals, data.goals),
+      recordings: merge(existing.recordings, data.recordings),
+    };
+    await Storage.importAll(merged);
+  },
+
+  async backupNow() {
+    try {
+      const data = await Storage.exportAll();
+      localStorage.setItem('studyflow.backup', JSON.stringify({ at: new Date().toISOString(), data }));
+      this.toast('Backup saved locally', 'success');
+    } catch (e) {
+      this.toast('Backup failed', 'error');
+    }
+  },
+
+  async checkForUpdates() {
+    if (!('serviceWorker' in navigator)) { this.toast('No service worker', 'error'); return; }
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.update();
+      if (reg.waiting) {
+        reg.waiting.postMessage('SKIP_WAITING');
+        this.toast('Updating to the latest version…', 'success');
+        setTimeout(() => location.reload(), 800);
+      } else {
+        this.toast('You are on the latest version', 'success');
+      }
+    } catch {
+      this.toast('Update check failed', 'error');
+    }
+  },
+
+  async clearAppCache() {
+    if (!('caches' in window)) { this.toast('Cache API unavailable', 'error'); return; }
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+    this.toast('App cache cleared', 'success');
   },
 };
 

@@ -131,7 +131,7 @@ self.addEventListener('fetch', (e) => {
 
 function openDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open('StudyFlowDB', 1);
+    const req = indexedDB.open('StudyFlowDB', 2);
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
@@ -175,6 +175,13 @@ async function checkAndNotify() {
 
   const notifEnabled = await getSetting(db, 'notificationsEnabled');
   if (notifEnabled === 'false') return;
+  const remindersOn = await getSetting(db, 'notifySessionReminders');
+  if (remindersOn === 'false') return;
+
+  const leadRaw = await getSetting(db, 'notifyLeadTime');
+  const lead = leadRaw ? parseInt(leadRaw, 10) : 15;
+  const quietStart = await getSetting(db, 'notifyQuietStart');
+  const quietEnd = await getSetting(db, 'notifyQuietEnd');
 
   const [sessions, subjects] = await Promise.all([
     getAllFromStore(db, 'sessions'),
@@ -184,14 +191,21 @@ async function checkAndNotify() {
   const now = new Date();
   const today = getToday();
 
+  const cur = now.getHours() * 60 + now.getMinutes();
+  const parse = (str) => { const m = /^(\d{1,2}):(\d{2})$/.exec(str || ''); return m ? Math.min(1439, parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) : null; };
+  const qs = parse(quietStart), qe = parse(quietEnd);
+  const inQuiet = qs != null && qe != null && (qs <= qe ? (cur >= qs && cur < qe) : (cur >= qs || cur < qe));
+  if (inQuiet) return;
+
   for (const s of sessions) {
     if (s.date !== today || !s.startTime || s.endTime || s.notified) continue;
     const start = new Date(s.startTime);
     const diffMin = (start.getTime() - now.getTime()) / 60000;
-    if (diffMin <= 0 || diffMin > 15) continue;
+    if (diffMin <= 0 || diffMin > lead) continue;
 
     const subj = subjects.find((x) => x.id === s.subjectId);
-    const timeStr = start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const locale = (await getSetting(db, 'language')) || 'en-US';
+    const timeStr = start.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
 
     try {
       if (Notification.permission === 'granted') {
@@ -210,6 +224,10 @@ async function checkAndNotify() {
     await putInStore(db, 'sessions', s);
   }
 }
+
+self.addEventListener('message', (e) => {
+  if (e.data === 'SKIP_WAITING') self.skipWaiting();
+});
 
 // Periodic Background Sync (Chrome/Edge where supported)
 self.addEventListener('periodicsync', (e) => {

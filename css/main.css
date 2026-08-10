@@ -53,7 +53,27 @@
 }
 
 html {
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale, 1));
+}
+
+/* Accent palettes — selected via [data-accent] (Settings → Appearance). */
+[data-accent="violet"]   { --accent:#7c3aed; --accent-h:#6d28d9; --accent-bg:#f3e8ff; --accent-text:#7c3aed; }
+[data-accent="emerald"]  { --accent:#059669; --accent-h:#047857; --accent-bg:#d1fae5; --accent-text:#059669; }
+[data-accent="rose"]     { --accent:#e11d48; --accent-h:#be123c; --accent-bg:#ffe4e6; --accent-text:#e11d48; }
+[data-accent="amber"]    { --accent:#d97706; --accent-h:#b45309; --accent-bg:#fef3c7; --accent-text:#d97706; }
+[data-accent="slate"]    { --accent:#475569; --accent-h:#334155; --accent-bg:#f1f5f9; --accent-text:#475569; }
+
+/* Compact density — tighter paddings and gaps. */
+[data-density="compact"] .card { padding: 12px; }
+[data-density="compact"] .settings-row { padding: 10px 0; }
+[data-density="compact"] .grid { gap: 10px; }
+
+/* Reduce motion — disable transitions/animations when requested. */
+[data-reduce-motion="true"] *, [data-reduce-motion="true"] *::before, [data-reduce-motion="true"] *::after {
+  transition-duration: 0.001ms !important;
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
 }
 
 html, body {
@@ -2339,3 +2359,202 @@ select { cursor: pointer; }
 .note-group-grid {
   margin-bottom: 18px;
 }
+
+/* ── Settings: switch toggle ── */
+.switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border: none;
+  border-radius: 999px;
+  background: var(--border);
+  cursor: pointer;
+  transition: background var(--transition);
+  flex: none;
+  padding: 0;
+}
+.switch .switch-knob {
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition);
+}
+.switch.on { background: var(--accent); }
+.switch.on .switch-knob { transform: translateX(18px); }
+
+/* ── Settings: number/range wrapper ── */
+.settings-num-wrap { display: flex; align-items: center; gap: 8px; }
+.settings-num-wrap .unit { color: var(--text-3); font-size: 0.85rem; }
+.settings-num-val { font-size: 0.8rem; color: var(--text-3); min-width: 34px; }
+
+/* ── Settings: tabbed section nav ── */
+.settings-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+.settings-nav-btn {
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-2);
+  padding: 9px 13px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+  margin-bottom: -1px;
+}
+.settings-nav-btn:hover { color: var(--accent-text); }
+.settings-nav-btn.active {
+  color: var(--accent-text);
+  border-bottom-color: var(--accent);
+  background: var(--surface);
+}
+.settings-section[hidden] { display: none; }
+
+/* ── Focus timer: custom duration inputs + presets ── */
+.focus-custom { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.focus-custom label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--text-2); font-weight: 600; }
+.focus-custom .unit { font-size: 0.72rem; color: var(--text-3); }
+.focus-presets-list { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; width: 100%; }
+.preset-chip { position: relative; }
+.preset-x {
+  margin-left: 6px;
+  color: var(--text-3);
+  font-weight: 700;
+}
+.preset-x:hover { color: var(--danger); }
+
+.settings-presets { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+.text-sm { font-size: 0.82rem; }
+.mt-xs { margin-top: 8px; }
+
+/* ── Quests & Levels ── */
+.quest-hero {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  padding: 20px;
+  background: linear-gradient(135deg, var(--accent-bg), var(--surface));
+  border: 1px solid var(--border);
+}
+.quest-hero-compact { padding: 16px; }
+.quest-hero-avatar {
+  position: relative;
+  width: 72px; height: 72px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.quest-hero-avatar svg { width: 38px; height: 38px; }
+.quest-hero-compact .quest-hero-avatar { width: 56px; height: 56px; }
+.quest-hero-compact .quest-hero-avatar svg { width: 30px; height: 30px; }
+.quest-level-badge {
+  position: absolute;
+  bottom: -4px; right: -4px;
+  min-width: 26px; height: 26px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--accent);
+  border: 2px solid var(--accent);
+  font-weight: 800;
+  font-size: 0.8rem;
+  display: grid; place-items: center;
+}
+.quest-hero-body { flex: 1; min-width: 0; }
+.quest-hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.quest-rank { font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); }
+.quest-level { font-size: 1.15rem; font-weight: 800; }
+.quest-streak {
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.quest-xp-bar { height: 10px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.quest-xp-bar .progress-fill { background: linear-gradient(90deg, var(--accent), var(--warning)); }
+.quest-xp-label { margin-top: 6px; font-size: 0.78rem; color: var(--text-3); text-align: center; }
+.quest-hero-tracked {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.quest-hero-tracked-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.quest-hero-tracked-label { font-size: 0.8rem; font-weight: 700; color: var(--accent); }
+.quest-hero-tracked-empty { padding-top: 12px; }
+.mt-xs { margin-top: 4px; }
+
+.daily-quest-editor { padding: 18px; }
+.daily-quest-editor-main { display: flex; gap: 14px; align-items: flex-start; }
+.daily-quest-editor-ico { width: 46px; height: 46px; flex-shrink: 0; border-radius: 12px; background: var(--accent-bg); display: grid; place-items: center; font-size: 1.4rem; }
+.daily-quest-editor-body { flex: 1; min-width: 0; }
+.daily-quest-editor-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.daily-quest-field { margin: 0; min-width: 110px; }
+.daily-quest-actions { display: flex; gap: 8px; margin-left: auto; }
+@media (max-width: 540px) {
+  .daily-quest-actions { margin-left: 0; width: 100%; }
+  .daily-quest-actions .btn { flex: 1; }
+}
+
+.quests-grid { align-items: start; }
+.quest-card { border-top: 3px solid var(--accent); }
+.quest-card.quest-easy { border-top-color: var(--success); }
+.quest-card.quest-normal { border-top-color: var(--accent); }
+.quest-card.quest-hard { border-top-color: var(--warning); }
+.quest-card.quest-epic { border-top-color: var(--danger); }
+.quest-card.quest-done { background: color-mix(in srgb, var(--success) 10%, var(--surface)); }
+.quest-card-top { display: flex; gap: 12px; align-items: center; }
+.quest-icon {
+  width: 42px; height: 42px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: var(--accent-bg);
+  display: grid; place-items: center;
+  font-size: 1.3rem;
+}
+.quest-card-title { flex: 1; min-width: 0; }
+.quest-card-actions { display: flex; gap: 4px; }
+.quest-progress { margin-top: 14px; }
+.quest-progress-label { margin-top: 6px; font-size: 0.8rem; color: var(--text-3); text-align: center; }
+
+.quest-diff-pick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.quest-diff-opt {
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 10px 6px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  transition: var(--transition);
+}
+.quest-diff-opt:hover { border-color: var(--accent); }
+.quest-diff-opt.selected { border-color: var(--accent); background: var(--accent-bg); color: var(--accent-text); }
+.quest-diff-ico { font-size: 1.2rem; }
+.quest-easy.selected { border-color: var(--success); background: color-mix(in srgb, var(--success) 14%, var(--surface)); color: var(--success); }
+.quest-hard.selected { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 16%, var(--surface)); color: var(--warning); }
+.quest-epic.selected { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, var(--surface)); color: var(--danger); }

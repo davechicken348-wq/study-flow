@@ -9,8 +9,12 @@
  * (grown) from that graph with overlapping membership and a "tangle cap"
  * that prevents one giant catch-all cluster.
  *
- * Tunable via the CONFIG object below.
+ * The edge threshold (`theta`), tangle cap, and weights are driven by user
+ * Settings (affinityTightness, affinityMaxGroup) at call time so changes take
+ * effect live without a reload.
  */
+
+import Settings from './settings.js';
 
 export const CONFIG = {
   // Edge threshold: a pair becomes linked only if combined weight >= theta.
@@ -31,6 +35,17 @@ export const CONFIG = {
   // Labels are built from the top-N most distinctive tokens in a group.
   labelTokenCount: 2
 };
+
+// Map the user's "tightness" slider (10–90%) onto theta. Higher tightness =>
+// higher theta => fewer, tighter links. 10% -> ~0.55 (loose), 90% -> ~0.12.
+function effectiveTheta() {
+  const t = (Settings.get('affinityTightness') || 50) / 100;
+  return 0.55 - (t - 0.1) * (0.55 - 0.12) / 0.8;
+}
+
+function effectiveTangleCap() {
+  return Settings.get('affinityMaxGroup') || CONFIG.tangleCap;
+}
 
 const STOPWORDS = new Set([
   'the','a','an','and','or','but','if','then','else','for','of','to','in','on',
@@ -167,7 +182,7 @@ function buildGraph(notes, lex) {
       const coc = cocit.get(key) ? 1 : 0;
       const total = w + CONFIG.weights.cocitation * coc;
 
-      if (total >= CONFIG.theta) {
+      if (total >= effectiveTheta()) {
         graph.get(a.id).push({ other: b.id, weight: total });
         graph.get(b.id).push({ other: a.id, weight: total });
       }
@@ -215,7 +230,7 @@ export function weaveGroups(notes, graph) {
   // Apply tangle cap: split oversized groups by dropping weakest links.
   const capped = [];
   for (const g of groups) {
-    if (g.length <= CONFIG.tangleCap) { capped.push(g); continue; }
+    if (g.length <= effectiveTangleCap()) { capped.push(g); continue; }
     const core = new Set([g[0]]);
     const spill = g.slice(1);
     spill.sort((a, b) => degree(b) - degree(a));

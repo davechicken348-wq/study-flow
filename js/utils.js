@@ -2,6 +2,8 @@
  * StudyFlow — utils.js
  */
 
+import Settings from './settings.js';
+
 export function generateId() {
   return 'id_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
 }
@@ -11,14 +13,28 @@ export function getToday() {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
+// Local YYYY-MM-DD for an ISO timestamp, so "today" comparisons match the
+// user's timezone (toISOString() is UTC and would mismatch across offsets).
+export function localDateOf(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 export function formatDate(iso) {
   if (!iso) return '';
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return new Date(iso).toLocaleDateString(Settings.locale(), { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export function formatTime(iso) {
   if (!iso) return '';
-  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return new Date(iso).toLocaleTimeString(Settings.locale(), { hour: 'numeric', minute: '2-digit', hour12: Settings.hour12() });
+}
+
+export function formatDateTime(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString(Settings.locale(), { hour: 'numeric', minute: '2-digit', hour12: Settings.hour12() });
 }
 
 export function formatDuration(seconds) {
@@ -40,9 +56,10 @@ export function formatDurationClock(seconds) {
 
 export function getWeekDates(refDate = new Date()) {
   const d = new Date(refDate);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
+  const first = Settings.weekStartDay();
+  let diff = d.getDay() - first;
+  if (diff < 0) diff += 7;
+  d.setDate(d.getDate() - diff);
   d.setHours(0, 0, 0, 0);
   return Array.from({ length: 7 }, (_, i) => {
     const dd = new Date(d);
@@ -53,9 +70,10 @@ export function getWeekDates(refDate = new Date()) {
 
 export function getStartOfWeek(refDate = new Date()) {
   const d = new Date(refDate);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
+  const first = Settings.weekStartDay();
+  let diff = d.getDay() - first;
+  if (diff < 0) diff += 7;
+  d.setDate(d.getDate() - diff);
   d.setHours(0, 0, 0, 0);
   return d;
 }
@@ -72,6 +90,15 @@ export function escapeHtml(str) {
 export function debounce(fn, ms) {
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+export function clampInt(el, min, max, fallback) {
+  if (!el) return fallback;
+  let n = parseInt(el.value, 10);
+  if (Number.isNaN(n)) n = fallback;
+  n = Math.min(max, Math.max(min, n));
+  el.value = String(n);
+  return n;
 }
 
 export function renderSmartQuestion(qid, questions) {

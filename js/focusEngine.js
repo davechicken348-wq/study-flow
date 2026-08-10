@@ -85,20 +85,30 @@ export class FocusEngine {
     return Math.floor(secs);
   }
 
+  // Break length in seconds for the upcoming/current break. Honours
+  // long-break settings via `config.breakLengthFor(completedFocusRounds)`,
+  // falling back to `config.breakLength`.
+  _breakLength() {
+    if (typeof this.config.breakLengthFor === 'function') {
+      return this.config.breakLengthFor(this.round) * 1;
+    }
+    return this.config.breakLength;
+  }
+
   // Wall-clock target for the current phase (used for countdown + ring).
   targetEnd() {
-    const len = this.phase === PHASE.BREAK ? this.config.breakLength : this.config.focusLength;
+    const len = this.phase === PHASE.BREAK ? this._breakLength() : this.config.focusLength;
     const remaining = Math.max(0, len - this.elapsedInPhase());
     return Date.now() + remaining * 1000;
   }
 
   remainingInPhase() {
-    const len = this.phase === PHASE.BREAK ? this.config.breakLength : this.config.focusLength;
+    const len = this.phase === PHASE.BREAK ? this._breakLength() : this.config.focusLength;
     return Math.max(0, len - this.elapsedInPhase());
   }
 
   progress() {
-    const len = this.phase === PHASE.BREAK ? this.config.breakLength : this.config.focusLength;
+    const len = this.phase === PHASE.BREAK ? this._breakLength() : this.config.focusLength;
     if (!len) return 0;
     return Math.min(1, this.elapsedInPhase() / len);
   }
@@ -134,6 +144,20 @@ export class FocusEngine {
     if (this.openSegment || this.phase === PHASE.IDLE || this.phase === PHASE.COMPLETE) return;
     this._openSegment(this.phase);
     this.paused = false;
+    this._beginTicking();
+    this.onTick();
+  }
+
+  // True when a phase boundary has been reached but the next phase is not
+  // auto-starting (e.g. autoStartFocus is off) — the user must start it.
+  isAwaitingStart() {
+    return !this.paused && this.phase !== PHASE.IDLE && this.phase !== PHASE.COMPLETE && !this.openSegment;
+  }
+
+  // Manually begin the next (or first) phase when not auto-starting.
+  beginPhase() {
+    if (this.openSegment || this.paused || this.phase === PHASE.IDLE || this.phase === PHASE.COMPLETE) return;
+    this._openSegment(this.phase);
     this._beginTicking();
     this.onTick();
   }
@@ -205,11 +229,18 @@ export class FocusEngine {
       return;
     }
 
-    this.onPhase(this.phase);
-    if (this.config.autoStartBreaks || this.phase === PHASE.FOCUS) {
+    // Auto-start the *next* phase only if the corresponding setting is on.
+    // FOCUS -> BREAK respects autoStartBreaks; BREAK -> FOCUS respects autoStartFocus.
+    const shouldAutoStart = this.phase === PHASE.BREAK
+      ? this.config.autoStartBreaks
+      : this.config.autoStartFocus;
+    if (shouldAutoStart) {
       this._openSegment(this.phase);
       this._beginTicking();
     }
+    // Fire onPhase AFTER the next segment is opened, so listeners see the
+    // correct running/paused state (e.g. a Resume button only when truly idle).
+    this.onPhase(this.phase);
   }
 
   /* ---------- serialization ---------- */
@@ -222,7 +253,9 @@ export class FocusEngine {
       round: this.round,
       phaseInstance: this.phaseInstance,
       paused: this.paused,
-      config: { ...this.config },
+      // breakLengthFor is a function and cannot survive JSON serialization;
+      // it is re-derived from Settings on restore via loadFocusConfig().
+      config: { ...this.config, breakLengthFor: undefined },
       segments: this.segments.map((s) => ({ ...s })),
       openSegment: this.openSegment ? { ...this.openSegment } : null,
     };

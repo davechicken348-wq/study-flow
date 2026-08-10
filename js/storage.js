@@ -122,6 +122,12 @@ class Storage {
     n.updatedAt = new Date().toISOString();
     return this.put('notes', n);
   }
+  async markNoteViewed(id) {
+    const n = await this.get('notes', id);
+    if (!n) return;
+    n.lastViewedAt = new Date().toISOString();
+    return this.put('notes', n);
+  }
   deleteNote(id) { return this.delete('notes', id); }
 
   /* ---------- Goals ---------- */
