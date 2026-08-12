@@ -1156,16 +1156,28 @@ const app = {
       ? (phase === PHASE.BREAK ? "Step away for a moment — you've earned it." : (phase === PHASE.COMPLETE ? "That's a wrap. Nicely done." : "Stay with it. One round at a time."))
       : "Pick a focus and begin when you're ready.";
 
-    el.innerHTML = `
-      <div class="timer-stage ${hasSession ? 'is-active' : 'is-idle'} ${phase === PHASE.BREAK ? 'is-break' : ''}">
-        <div class="timer-companion">
-          <div class="timer-companion-illo">
-            <img class="timer-illo" src="assets/illustrations/Time-In-For-Work--Streamline-Bangalore.png" alt="">
-          </div>
-          <p class="timer-companion-caption" id="timerCompanionCaption">${illoCaption}</p>
-        </div>
+    // Today's focus data — so the page reads & displays data like the rest.
+    const today = getToday();
+    const allSessions = await Storage.getAllSessions();
+    const todaySessions = allSessions.filter((s) => s.date === today && s.source === 'timer');
+    const todayFocusSecs = todaySessions.reduce((sum, s) => sum + (s.duration || 0), 0);
+    const todayRounds = todaySessions.filter((s) => s.endTime).length;
+    const streak = this.calculateStreak(allSessions);
 
-        <div class="timer-panel">
+    el.innerHTML = `
+      <div class="page-header flex justify-between items-center page-header-inline">
+        <div>
+          <h1>Focus Timer</h1>
+          <p class="muted">${escapeHtml(illoCaption)}</p>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="timerHelpBtn" title="How the timer works" aria-label="How the timer works">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          How it works
+        </button>
+      </div>
+
+      <div class="timer-layout">
+        <div class="card timer-session-card ${phase === PHASE.BREAK ? 'is-break' : ''}">
           <div class="focus-ring-wrap">
             <svg class="focus-ring" viewBox="0 0 220 220">
               <circle class="focus-ring-bg" cx="110" cy="110" r="100"></circle>
@@ -1178,50 +1190,74 @@ const app = {
               ${roundsInfo ? `<div class="focus-rounds" id="focusRounds">${roundsInfo}</div>` : ''}
             </div>
           </div>
+          <p class="timer-session-caption" id="timerCompanionCaption">${illoCaption}</p>
 
           ${!hasSession ? `
+            <div class="flex gap mt timer-setup-actions">
+              <button class="btn btn-primary btn-lg" id="startTimerBtn" ${subjects.length === 0 ? 'disabled' : ''}>Start session</button>
+            </div>
+          ` : `
+            <div class="flex gap mt timer-setup-actions">
+              ${running ? `<button class="btn btn-ghost btn-lg" id="pauseTimerBtn">Pause</button>` : ''}
+              ${paused ? `<button class="btn btn-primary btn-lg" id="resumeTimerBtn">Resume</button>` : ''}
+              ${awaitingStart ? `<button class="btn btn-primary btn-lg" id="beginPhaseBtn">${phase === PHASE.FOCUS ? `Start round ${Math.min(eng.round + 1, eng.config.rounds)}` : 'Start break'}</button>` : ''}
+              ${phase === PHASE.FOCUS && running ? `<button class="btn btn-ghost btn-lg" id="skipTimerBtn">Skip phase</button>` : ''}
+              ${phase !== PHASE.COMPLETE ? `<button class="btn btn-danger btn-lg" id="stopTimerBtn">Stop</button>` : ''}
+            </div>
+            ${phase === PHASE.COMPLETE ? `<p class="timer-complete-msg mt">Session complete — great work! 🎉</p>` : ''}
+          `}
+        </div>
+
+        <div class="card timer-setup-card">
+          ${!hasSession ? `
+            <div class="card-header">
+              <h2>Set up</h2>
+            </div>
             <div class="focus-config">
               <div class="focus-config-row">
                 <label>Subject</label>
-                <select id="timerSubject" style="max-width:260px;" ${subjects.length === 0 ? 'disabled' : ''}>
+                <select id="timerSubject" ${subjects.length === 0 ? 'disabled' : ''}>
                   <option value="">Select subject</option>
                   ${subjects.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}
                 </select>
+                ${subjects.length === 0 ? `<span class="focus-config-hint">Add a subject first on the Subjects page.</span>` : ''}
               </div>
               <div class="focus-config-row">
                 <label>Goal (optional)</label>
-                  <select id="timerGoal" style="max-width:260px;">
-                    <option value="">No goal</option>
-                    ${linkableGoals.map((g) => `<option value="${g.id}" ${this.pendingGoalId === g.id ? 'selected' : ''}>${escapeHtml((g.label || g.type) + (g.target ? ' (' + g.target + (g.unit || '') + ')' : ''))}</option>`).join('')}
-                  </select>
+                <select id="timerGoal">
+                  <option value="">No goal</option>
+                  ${linkableGoals.map((g) => `<option value="${g.id}" ${this.pendingGoalId === g.id ? 'selected' : ''}>${escapeHtml((g.label || g.type) + (g.target ? ' (' + g.target + (g.unit || '') + ')' : ''))}</option>`).join('')}
+                </select>
               </div>
-              <div class="focus-config-row focus-config-presets">
+              <div class="focus-config-block">
+                <div class="focus-config-block-head">
+                  <span>Session length</span>
+                  <span class="focus-config-block-sub">Focus · Break · Rounds</span>
+                </div>
                 <div class="focus-custom">
                   <label>Focus
-                    <input type="number" id="timerFocusLen" min="1" max="120" value="${Settings.get('focusLength')}" style="width:64px">
-                    <span class="unit">min</span>
+                    <span class="focus-num"><input type="number" id="timerFocusLen" min="1" max="120" value="${Settings.get('focusLength')}"><span class="unit">min</span></span>
                   </label>
                   <label>Break
-                    <input type="number" id="timerBreakLen" min="1" max="60" value="${Settings.get('breakLength')}" style="width:64px">
-                    <span class="unit">min</span>
+                    <span class="focus-num"><input type="number" id="timerBreakLen" min="1" max="60" value="${Settings.get('breakLength')}"><span class="unit">min</span></span>
                   </label>
                   <label>Rounds
-                    <input type="number" id="timerRounds" min="1" max="12" value="${Settings.get('rounds')}" style="width:56px">
+                    <span class="focus-num"><input type="number" id="timerRounds" min="1" max="12" value="${Settings.get('rounds')}"></span>
                   </label>
                 </div>
-                <div class="focus-presets-list" id="timerPresetsList"></div>
-                <div class="flex gap-xs mt-xs">
-                  <button class="btn btn-ghost btn-sm" id="saveTimerPresetBtn">Save preset</button>
+              </div>
+              <div class="focus-config-presets">
+                <div class="focus-config-block-head">
+                  <span>Presets</span>
                 </div>
+                <div class="focus-presets-list" id="timerPresetsList"></div>
+                <button class="btn btn-ghost btn-sm" id="saveTimerPresetBtn">Save current as preset</button>
               </div>
             </div>
-            <div class="flex gap mt">
-              <button class="btn btn-primary btn-lg" id="startTimerBtn" ${subjects.length === 0 ? 'disabled' : ''}>Start</button>
-              <button class="btn btn-ghost btn-lg" id="timerHelpBtn" title="How the timer works" aria-label="How the timer works">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              </button>
-            </div>
           ` : `
+            <div class="card-header">
+              <h2>Session details</h2>
+            </div>
             <div class="timer-active-config">
               <div class="timer-active-row">
                 <span class="muted text-sm">Subject</span>
@@ -1237,15 +1273,26 @@ const app = {
               </div>
               ${eng.goalId ? this.timerQuestProgressHtml(eng.goalId) : ''}
             </div>
-            <div class="flex gap mt">
-              ${running ? `<button class="btn btn-ghost btn-lg" id="pauseTimerBtn">Pause</button>` : ''}
-              ${paused ? `<button class="btn btn-primary btn-lg" id="resumeTimerBtn">Resume</button>` : ''}
-              ${awaitingStart ? `<button class="btn btn-primary btn-lg" id="beginPhaseBtn">${phase === PHASE.FOCUS ? `Start round ${Math.min(eng.round + 1, eng.config.rounds)}` : 'Start break'}</button>` : ''}
-              ${phase === PHASE.FOCUS && running ? `<button class="btn btn-ghost btn-lg" id="skipTimerBtn">Skip phase</button>` : ''}
-              ${phase !== PHASE.COMPLETE ? `<button class="btn btn-danger btn-lg" id="stopTimerBtn">Stop</button>` : ''}
-            </div>
-            ${phase === PHASE.COMPLETE ? `<p class="muted mt">Session complete — great work! 🎉</p>` : ''}
           `}
+        </div>
+      </div>
+
+      <div class="grid grid-4 gap mt">
+        <div class="card forecast-stat">
+          <div class="stat-value">${formatDuration(todayFocusSecs)}</div>
+          <div class="stat-label">Focus today</div>
+        </div>
+        <div class="card forecast-stat">
+          <div class="stat-value">${todayRounds}</div>
+          <div class="stat-label">Rounds today</div>
+        </div>
+        <div class="card forecast-stat">
+          <div class="stat-value">${streak}</div>
+          <div class="stat-label">Day streak</div>
+        </div>
+        <div class="card forecast-stat">
+          <div class="stat-value">${todaySessions.length}</div>
+          <div class="stat-label">Sessions today</div>
         </div>
       </div>
     `;
@@ -1257,16 +1304,20 @@ const app = {
     document.getElementById('stopTimerBtn')?.addEventListener('click', () => this.stopTimer());
     document.getElementById('skipTimerBtn')?.addEventListener('click', () => this.skipTimer());
 
-    const applyTimerInputs = async () => {
+    const applyTimerInputs = async (rerender = false) => {
       const f = clampInt(document.getElementById('timerFocusLen'), 1, 120, Settings.get('focusLength'));
       const b = clampInt(document.getElementById('timerBreakLen'), 1, 60, Settings.get('breakLength'));
       const r = clampInt(document.getElementById('timerRounds'), 1, 12, Settings.get('rounds'));
       await Settings.setMany({ focusLength: f, breakLength: b, rounds: r });
-      eng.configure(await this.loadFocusConfig());
+      if (eng) eng.configure(await this.loadFocusConfig());
+      if (rerender) { this.renderTimer(); return; }
       this.renderTimerPresets();
     };
     ['timerFocusLen', 'timerBreakLen', 'timerRounds'].forEach((id) => {
-      document.getElementById(id)?.addEventListener('change', applyTimerInputs);
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', () => applyTimerInputs(false));
+      el.addEventListener('change', () => applyTimerInputs(true));
     });
 
     document.getElementById('saveTimerPresetBtn')?.addEventListener('click', () => this.saveTimerPreset());
@@ -1369,22 +1420,51 @@ const app = {
   showTimerHelp() {
     this.openModal(`
       <div class="modal-overlay">
-        <div class="modal" style="max-width:560px">
-          <div class="modal-header">
-            <h2>How the Focus Timer works</h2>
-            <button class="btn btn-ghost btn-sm" id="closeTimerHelp">Close</button>
+        <div class="modal timer-help-modal" style="max-width:560px">
+          <div class="timer-help-hero">
+            <img class="timer-help-illo" src="assets/illustrations/Time-In-For-Work--Streamline-Bangalore.png" alt="">
+            <div class="timer-help-hero-text">
+              <h2>How the Focus Timer works</h2>
+              <p class="muted">Study in focused rounds with breaks in between — the ring shows your progress, your stats show the payoff.</p>
+            </div>
+            <button class="btn btn-ghost btn-sm timer-help-close" id="closeTimerHelp" aria-label="Close">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
           </div>
           <div class="timer-help-body">
-            <p class="muted">The Timer runs on a <strong>Focus Engine</strong> that breaks study time into focus rounds with breaks in between.</p>
-            <ol class="timer-help-list">
-              <li><strong>Set up.</strong> Pick a <em>Subject</em> (required) and optionally a <em>Goal</em> so your focus time counts toward it. Tap a preset — <code>25/5 ×4</code>, <code>50/10 ×2</code>, or <code>15/3 ×3</code> — to choose focus/break length and number of rounds. Your last preset is remembered.</li>
-              <li><strong>Start.</strong> Press <em>Start</em>. The ring fills and counts down. A round counter (<code>Round 1 / 4</code>) shows your progress.</li>
-              <li><strong>Controls.</strong> <em>Pause</em> safely stops the clock (time is recorded by segments, so sleeping or closing the tab won't lose it) and shows <em>Paused</em>. <em>Resume</em> continues. <em>Skip phase</em> ends the current block early. <em>Stop</em> ends the whole session and saves it.</li>
-              <li><strong>Breaks.</strong> Each focus round auto-advances into a <em>Break</em> (ring turns green), then into the next round. After the final round the session is <em>Complete</em>.</li>
-              <li><strong>Persistence.</strong> An in-progress session is restored when you reopen the Timer — phase, elapsed time and round are kept.</li>
-              <li><strong>Where it shows.</strong> The Dashboard timer section shows each session with a badge: green = completed duration, blue = running (Focus/Break + round), grey = paused. Completed focus time feeds your stats and any linked goal.</li>
-            </ol>
-            <p class="subtle">Tip: pause (don't stop) for short interruptions; stop finalizes the session.</p>
+            <div class="timer-help-steps">
+              <div class="timer-help-step">
+                <div class="timer-help-step-ico" style="--step:var(--accent)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                </div>
+                <div>
+                  <h3>1 · Set up</h3>
+                  <p>Pick a <strong>Subject</strong> and optionally a <strong>Goal</strong>. Choose lengths with presets like <code>25/5 ×4</code> or <code>50/10 ×2</code> — your last one is remembered.</p>
+                </div>
+              </div>
+              <div class="timer-help-step">
+                <div class="timer-help-step-ico" style="--step:var(--accent)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
+                <div>
+                  <h3>2 · Focus</h3>
+                  <p>Press <strong>Start</strong>. The ring fills and counts down; a round counter shows your place. <strong>Pause</strong>, <strong>Resume</strong>, <strong>Skip</strong> or <strong>Stop</strong> whenever you need.</p>
+                </div>
+              </div>
+              <div class="timer-help-step">
+                <div class="timer-help-step-ico" style="--step:#10b981">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.25 21a9 9 0 1 1 9-9"/><path d="M8 4.5A9 9 0 0 1 20.25 16"/><path d="M16 3v6h-6"/></svg>
+                </div>
+                <div>
+                  <h3>3 · Break &amp; repeat</h3>
+                  <p>Each round flows into a <span class="timer-help-break">green Break</span>, then the next round. After the last, the session is <strong>Complete</strong> and saved.</p>
+                </div>
+              </div>
+            </div>
+            <div class="timer-help-note">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              <span>Your session is restored if you leave — phase, elapsed time and round are kept. Completed focus time feeds your stats and any linked goal. Tip: <strong>pause</strong> (don't stop) for short interruptions.</span>
+            </div>
           </div>
         </div>
       </div>
