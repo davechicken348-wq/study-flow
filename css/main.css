@@ -851,6 +851,21 @@ select { cursor: pointer; }
 .timer-setup-card .focus-config { align-items: stretch; max-width: none; margin-bottom: 0; }
 .timer-setup-actions { justify-content: center; margin-top: 18px; }
 .timer-setup-actions .btn-primary { min-width: 160px; }
+
+/* Quiet pointer to the Settings page for the deeper timer options. */
+.timer-setup-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 16px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent-text);
+  text-decoration: none;
+  align-self: flex-start;
+  transition: color var(--transition), gap var(--transition);
+}
+.timer-setup-more:hover { color: var(--accent); gap: 9px; }
 .timer-complete-msg {
   font-size: 1.05rem;
   font-weight: 700;
@@ -975,40 +990,56 @@ select { cursor: pointer; }
   justify-content: space-between;
   gap: 12px;
 }
-.focus-custom .focus-num {
+
+/* Display-only readout of the current Focus / Break / Rounds. These values
+   are configured in Settings → Focus & Timer, so they are shown, not edited. */
+.focus-readout {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.focus-readout-item {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  padding: 12px 8px;
   background: var(--surface);
-  border: 1.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0 10px;
-  height: 38px;
-  transition: border-color var(--transition), box-shadow var(--transition);
 }
-.focus-custom .focus-num:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-bg);
-}
-.focus-custom .focus-num input {
-  width: 100%;
-  min-width: 36px;
-  border: none;
-  background: transparent;
-  padding: 0;
-  text-align: center;
+.focus-readout-val {
+  font-size: 1.5rem;
   font-weight: 700;
-  font-size: 0.95rem;
-  -moz-appearance: textfield;
-  appearance: textfield;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  line-height: 1;
 }
-.focus-custom .focus-num input::-webkit-outer-spin-button,
-.focus-custom .focus-num input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
+.focus-readout-val small {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-3);
+  margin-left: 2px;
 }
-.focus-custom .focus-num input:focus { box-shadow: none; background: transparent; }
-.focus-custom .focus-num .unit { font-size: 0.72rem; color: var(--text-3); }
+.focus-readout-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.focus-readout-note {
+  margin-top: 12px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.focus-readout-note a {
+  color: var(--accent-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+.focus-readout-note a:hover { text-decoration: underline; }
 .preset-btn { border-color: var(--border, #e6e6f0); }
 .preset-btn:hover { border-color: var(--accent); }
 

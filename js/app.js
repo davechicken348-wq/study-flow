@@ -1232,19 +1232,14 @@ const app = {
               <div class="focus-config-block">
                 <div class="focus-config-block-head">
                   <span>Session length</span>
-                  <span class="focus-config-block-sub">Focus · Break · Rounds</span>
+                  <span class="focus-config-block-sub">Set in Settings</span>
                 </div>
-                <div class="focus-custom">
-                  <label>Focus
-                    <span class="focus-num"><input type="number" id="timerFocusLen" min="1" max="120" value="${Settings.get('focusLength')}"><span class="unit">min</span></span>
-                  </label>
-                  <label>Break
-                    <span class="focus-num"><input type="number" id="timerBreakLen" min="1" max="60" value="${Settings.get('breakLength')}"><span class="unit">min</span></span>
-                  </label>
-                  <label>Rounds
-                    <span class="focus-num"><input type="number" id="timerRounds" min="1" max="12" value="${Settings.get('rounds')}"></span>
-                  </label>
+                <div class="focus-readout">
+                  <div class="focus-readout-item"><span class="focus-readout-val">${Settings.get('focusLength')}<small>min</small></span><span class="focus-readout-label">Focus</span></div>
+                  <div class="focus-readout-item"><span class="focus-readout-val">${Settings.get('breakLength')}<small>min</small></span><span class="focus-readout-label">Break</span></div>
+                  <div class="focus-readout-item"><span class="focus-readout-val">${Settings.get('rounds')}</span><span class="focus-readout-label">Rounds</span></div>
                 </div>
+                <p class="focus-readout-note">These are display-only — change them in <a href="#settings" data-goto="settings">Settings → Focus &amp; Timer</a>.</p>
               </div>
               <div class="focus-config-presets">
                 <div class="focus-config-block-head">
@@ -1253,6 +1248,10 @@ const app = {
                 <div class="focus-presets-list" id="timerPresetsList"></div>
                 <button class="btn btn-ghost btn-sm" id="saveTimerPresetBtn">Save current as preset</button>
               </div>
+              <a class="timer-setup-more" href="#settings" data-goto="settings">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                Settings → Focus &amp; Timer
+              </a>
             </div>
           ` : `
             <div class="card-header">
@@ -1304,21 +1303,6 @@ const app = {
     document.getElementById('stopTimerBtn')?.addEventListener('click', () => this.stopTimer());
     document.getElementById('skipTimerBtn')?.addEventListener('click', () => this.skipTimer());
 
-    const applyTimerInputs = async (rerender = false) => {
-      const f = clampInt(document.getElementById('timerFocusLen'), 1, 120, Settings.get('focusLength'));
-      const b = clampInt(document.getElementById('timerBreakLen'), 1, 60, Settings.get('breakLength'));
-      const r = clampInt(document.getElementById('timerRounds'), 1, 12, Settings.get('rounds'));
-      await Settings.setMany({ focusLength: f, breakLength: b, rounds: r });
-      if (eng) eng.configure(await this.loadFocusConfig());
-      if (rerender) { this.renderTimer(); return; }
-      this.renderTimerPresets();
-    };
-    ['timerFocusLen', 'timerBreakLen', 'timerRounds'].forEach((id) => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      el.addEventListener('input', () => applyTimerInputs(false));
-      el.addEventListener('change', () => applyTimerInputs(true));
-    });
 
     document.getElementById('saveTimerPresetBtn')?.addEventListener('click', () => this.saveTimerPreset());
     this.renderTimerPresets();
@@ -1406,9 +1390,9 @@ const app = {
   },
 
   async saveTimerPreset() {
-    const f = clampInt(document.getElementById('timerFocusLen'), 1, 120, Settings.get('focusLength'));
-    const b = clampInt(document.getElementById('timerBreakLen'), 1, 60, Settings.get('breakLength'));
-    const r = clampInt(document.getElementById('timerRounds'), 1, 12, Settings.get('rounds'));
+    const f = Settings.get('focusLength');
+    const b = Settings.get('breakLength');
+    const r = Settings.get('rounds');
     const name = `${f}/${b}×${r}`;
     const presets = (Settings.get('timerPresets') || []).filter((p) => p.name !== name);
     presets.push({ name, focusLength: f, breakLength: b, rounds: r, longBreakLength: Settings.get('longBreakLength'), longBreakEvery: Settings.get('longBreakEvery') });
