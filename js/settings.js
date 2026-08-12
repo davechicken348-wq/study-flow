@@ -101,6 +101,14 @@ const SCHEMA = {
     help: 'Minimize animations and transitions.',
     apply: (v) => document.documentElement.setAttribute('data-reduce-motion', v ? 'true' : 'false'),
   },
+  sidebarExpanded: {
+    type: 'switch',
+    default: false,
+    group: 'appearance',
+    label: 'Expanded sidebar',
+    help: 'Show section labels in the sidebar instead of an icon-only rail.',
+    apply: (v) => document.documentElement.setAttribute('data-sidebar', v ? 'expanded' : 'collapsed'),
+  },
 
   /* ---- Locale & format ---- */
   language: {

@@ -20,6 +20,7 @@
   --success-bg:   #dcfce7;
   --warning:      #f59e0b;
   --sidebar-w:    64px;
+  --sidebar-expanded-w: 232px;
   --radius-sm:    8px;
   --radius:       12px;
   --radius-lg:    16px;
@@ -162,9 +163,13 @@ img, svg { display: block; }
   display: flex;
   flex-direction: column;
   z-index: 100;
-  transition: transform var(--transition);
+  transition: transform var(--transition), width var(--transition);
   overflow-x: hidden;
 }
+
+/* Expanded (labeled) mode, driven by the sidebarExpanded setting. */
+html[data-sidebar="expanded"] .sidebar { width: var(--sidebar-expanded-w); }
+html[data-sidebar="expanded"] .app-main { margin-left: var(--sidebar-expanded-w); }
 
 .sidebar-toggle {
   display: none;
@@ -195,8 +200,8 @@ img, svg { display: block; }
 .sidebar-brand {
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 20px 0;
+  gap: 10px;
+  padding: 16px 14px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -213,6 +218,38 @@ img, svg { display: block; }
   box-shadow: var(--shadow-sm);
 }
 .brand-icon svg { width: 18px; height: 18px; }
+
+.sidebar-brand-text {
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  opacity: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: opacity var(--transition);
+  flex: 1;
+}
+html[data-sidebar="expanded"] .sidebar-brand-text { opacity: 1; }
+
+.sidebar-collapse {
+  display: none;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.sidebar-collapse:hover { background: var(--surface-2); color: var(--text); }
+.sidebar-collapse svg { width: 18px; height: 18px; transition: transform var(--transition); }
+html[data-sidebar="expanded"] .sidebar-collapse { display: flex; }
+/* Point the chevron left when expanded (collapse); right when collapsed. */
+.sidebar-collapse:not(.is-collapsed) svg { transform: rotate(0deg); }
+html[data-sidebar="collapsed"] .sidebar-collapse.is-collapsed svg { transform: rotate(180deg); }
 
 .sidebar-nav {
   flex: 1;
@@ -237,15 +274,29 @@ img, svg { display: block; }
   cursor: pointer;
   transition: background var(--transition), color var(--transition);
 }
-.nav-item span { display: none; }
+.nav-item span {
+  display: none;
+  white-space: nowrap;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
 .nav-item svg { width: 20px; height: 20px; flex-shrink: 0; }
 .nav-item:hover { background: var(--surface-2); color: var(--text); }
 .nav-item.active {
   background: var(--accent-bg);
   color: var(--accent);
+  font-weight: 600;
 }
+html[data-sidebar="expanded"] .nav-item {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 0 12px;
+}
+html[data-sidebar="expanded"] .nav-item span { display: inline; opacity: 1; }
 
-/* Tooltip */
+/* Tooltip — only shown in the collapsed (icon-only) rail */
 .nav-item::after {
   content: attr(data-tooltip);
   position: absolute;
@@ -265,6 +316,39 @@ img, svg { display: block; }
   z-index: 200;
 }
 .nav-item:hover::after { opacity: 1; }
+html[data-sidebar="expanded"] .nav-item::after { display: none; }
+
+/* In the expanded rail, the active item gets a left accent bar */
+html[data-sidebar="expanded"] .nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+
+/* Hover-to-reveal preview (collapsed rail only): widen the rail and show
+   labels as a transient glance. Only the sidebar width changes — .app-main
+   margin stays fixed so the page content never shifts. Touch devices skip
+   this (no hover) and the mobile drawer already shows labels its own way. */
+@media (hover: hover) and (pointer: fine) {
+  html[data-sidebar="collapsed"] .sidebar:hover {
+    width: var(--sidebar-expanded-w);
+    box-shadow: var(--shadow-lg);
+    z-index: 130;
+  }
+  html[data-sidebar="collapsed"] .sidebar:hover .sidebar-brand-text { opacity: 1; }
+  html[data-sidebar="collapsed"] .sidebar:hover .nav-item {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 0 12px;
+  }
+  html[data-sidebar="collapsed"] .sidebar:hover .nav-item span { display: inline; opacity: 1; }
+  /* While previewing, labels are visible so the tooltip would be redundant. */
+  html[data-sidebar="collapsed"] .sidebar:hover .nav-item::after { display: none; }
+}
 
 .sidebar-footer {
   display: flex;
@@ -2557,7 +2641,7 @@ select { cursor: pointer; }
   /* Sidebar becomes a drawer */
   .sidebar {
     transform: translateX(-100%);
-    width: 280px;
+    width: 280px !important;
     box-shadow: var(--shadow-lg);
     z-index: 110;
   }
@@ -2567,6 +2651,9 @@ select { cursor: pointer; }
   /* Hide sidebar nav items on mobile — use bottom nav instead */
   .sidebar-nav { display: none; }
   .sidebar-footer { display: none !important; }
+  /* The expand/collapse control is desktop-only (mobile uses the drawer). */
+  .sidebar-collapse { display: none !important; }
+  .sidebar-brand-text { display: none !important; }
 
   /* Show bottom nav */
   .bottom-nav { display: block; }

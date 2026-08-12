@@ -79,6 +79,7 @@ const app = {
     this.initImageFallback();
     this.setupListeners();
     this.bindSettingsReactivity();
+    this.bindSidebar();
     await this.restoreTimerState();
     this.initNotifications();
     this._currentPage = window.location.hash.slice(1) || 'dashboard';
@@ -86,8 +87,6 @@ const app = {
   },
 
   bindSettingsReactivity() {
-    // Theme can change out from under us if the OS preference flips while
-    // the app is set to "system".
     if (window.matchMedia) {
       const mq = window.matchMedia('(prefers-color-scheme: dark)');
       const handler = () => { if (Settings.get('theme') === 'system') Settings.set('theme', 'system'); };
@@ -120,6 +119,23 @@ const app = {
     ['notificationsEnabled', 'notifySessionReminders', 'notifyLeadTime', 'notifyQuietStart', 'notifyQuietEnd']
       .forEach((k) => Settings.subscribe(k, mirrorNotif));
     mirrorNotif();
+  },
+
+  // Keep the desktop sidebar's expand/collapse state in sync with the
+  // `sidebarExpanded` setting: flip the root attribute (CSS handles layout),
+  // and update the collapse button's icon + aria to reflect the current mode.
+  bindSidebar() {
+    const sync = () => {
+      const expanded = !!Settings.get('sidebarExpanded');
+      const btn = document.getElementById('sidebarCollapse');
+      if (btn) {
+        btn.setAttribute('aria-label', expanded ? 'Collapse sidebar' : 'Expand sidebar');
+        btn.setAttribute('title', expanded ? 'Collapse sidebar' : 'Expand sidebar');
+        btn.classList.toggle('is-collapsed', !expanded);
+      }
+    };
+    Settings.subscribe('sidebarExpanded', sync);
+    sync();
   },
 
   handleImageError(img) {
@@ -176,6 +192,13 @@ const app = {
     backdrop?.addEventListener('click', () => {
       sidebar.classList.remove('open');
       backdrop.classList.remove('visible');
+    });
+
+    // Sidebar collapse / expand (desktop). Persisted via Settings; on mobile
+    // the drawer is controlled by sidebarToggle instead.
+    document.getElementById('sidebarCollapse')?.addEventListener('click', () => {
+      const expanded = Settings.get('sidebarExpanded');
+      Settings.set('sidebarExpanded', !expanded);
     });
 
     // Sidebar nav links
