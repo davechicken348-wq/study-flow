@@ -1,4 +1,4 @@
-const CACHE = 'studyflow-v6';
+const CACHE = 'studyflow-v7';
 const VERSIONED = CACHE;
 const ILLUSTRATIONS = [
   'Bills-Payment-01--Streamline-Bangalore.png',
@@ -8,6 +8,7 @@ const ILLUSTRATIONS = [
   'Designer-Creative--Streamline-Bangalore.png',
   'Development-Code-Learning-01--Streamline-Bangalore.png',
   'Documents-4--Streamline-Bangalore.png',
+  'Drawing-Painting--Streamline-Bangalore.png',
   'Education-Online-Learning-02--Streamline-Bangalore.png',
   'Hr-Human-Resources-2--Streamline-Bangalore.png',
   'I-Have-A-Question-2--Streamline-Bangalore.png',
