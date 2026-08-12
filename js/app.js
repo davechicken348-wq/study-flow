@@ -6,6 +6,7 @@ import { groupNotes, groupNotesByLens } from './affinityWeaving.js';
 import { FocusEngine, PHASE, FOCUS_DEFAULTS } from './focusEngine.js';
 import Settings from './settings.js';
 import { ensureDailyQuest, isDailyQuest, buildDailyQuest } from './questSeed.js';
+import { buildForecast, holtForecast, weeklyMinutesSeries } from './forecast.js';
 import { playPhaseSound, unlockAudio } from './sounds.js';
 
 function attachQuestionToggle(container) {
@@ -549,6 +550,9 @@ const app = {
       <div class="card quest-hero quest-hero-compact mt">
         <div class="quest-hero-avatar" aria-hidden="true">
           <div class="quest-level-badge">${info.level}</div>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="8" r="6"/><path d="M8.5 13.5 7 22l5-3 5 3-1.5-8.5"/>
+          </svg>
         </div>
         <div class="quest-hero-body">
           <div class="quest-hero-top">
@@ -2790,6 +2794,7 @@ const app = {
   async renderStatistics() {
     const el = document.getElementById('pageContent');
     const sessions = await Storage.getAllSessions();
+    const subjects = await Storage.getAllSubjects();
 
     if (sessions.length === 0) {
       el.innerHTML = `
@@ -2826,6 +2831,31 @@ const app = {
           <div style="position:relative;height:200px">
             <canvas id="doughnutChart"></canvas>
           </div>
+        </div>
+      </div>
+
+      <div class="card mt" id="forecastCard">
+        <div class="card-header flex justify-between items-center">
+          <h2>Forecast &amp; Pacing</h2>
+          <span class="badge" id="forecastBadge">…</span>
+        </div>
+        <p class="muted text-sm" id="forecastSummary">Predicting your week…</p>
+        <div class="forecast-grid grid grid-3 gap mt">
+          <div class="forecast-stat">
+            <div class="stat-value" id="forecastPerDay">…</div>
+            <div class="stat-label">Min / day to goal</div>
+          </div>
+          <div class="forecast-stat">
+            <div class="stat-value" id="forecastNextWeek">…</div>
+            <div class="stat-label">Next week (trend)</div>
+          </div>
+          <div class="forecast-stat">
+            <div class="stat-value" id="forecastStreakRisk">…</div>
+            <div class="stat-label">Streak-break risk</div>
+          </div>
+        </div>
+        <div style="position:relative;height:180px" class="mt">
+          <canvas id="forecastChart"></canvas>
         </div>
       </div>
     `;
@@ -2881,7 +2911,6 @@ const app = {
         },
       });
 
-      const subjects = await Storage.getAllSubjects();
       const subjectData = subjects.map((s) => {
         const subjSessions = sessions.filter((x) => x.subjectId === s.id);
         return {
@@ -2910,6 +2939,102 @@ const app = {
       } else {
         document.getElementById('doughnutChartCard').innerHTML = '<p class="muted text-center mt">No subject data available</p>';
       }
+    }
+
+    this.renderForecast(sessions, subjects);
+  },
+
+  async renderForecast(sessions, subjects) {
+    const wk = getWeekDates();
+    const daysLeft = wk.slice(wk.indexOf(getToday()) + 1).length + 1; // inclusive of today
+    const weeklyTargetSec = subjects.reduce((sum, s) => sum + (Number(s.weeklyGoal) || 0), 0);
+    const forecast = buildForecast(sessions, Math.round(weeklyTargetSec / 60), {
+      weekStartDay: Settings.weekStartDay(),
+      currentStreak: this.calculateStreak(sessions),
+      daysLeftThisWeek: daysLeft,
+    });
+
+    const badge = document.getElementById('forecastBadge');
+    const summary = document.getElementById('forecastSummary');
+    const perDay = document.getElementById('forecastPerDay');
+    const nextWeek = document.getElementById('forecastNextWeek');
+    const riskEl = document.getElementById('forecastStreakRisk');
+    if (!badge || !forecast) return;
+
+    const target = forecast.weeklyTargetMinutes;
+    if (target <= 0) {
+      badge.textContent = 'No goal set';
+      badge.className = 'badge badge-muted';
+      summary.textContent = 'Set a weekly goal per subject to unlock pacing forecasts.';
+      perDay.textContent = '—';
+      nextWeek.textContent = formatDuration(forecast.nextWeekForecast * 60);
+      riskEl.textContent = Math.round(forecast.streakRisk.risk * 100) + '%';
+      return;
+    }
+
+    const remainingMin = forecast.pace.remaining;
+    const onTrack = remainingMin <= 0;
+    badge.textContent = onTrack ? 'On track' : 'Needs focus';
+    badge.className = 'badge ' + (onTrack ? 'badge-success' : 'badge-warning');
+    summary.innerHTML = onTrack
+      ? `You've already hit your weekly goal of <strong>${formatDuration(target * 60)}</strong>. Keep the streak alive!`
+      : `You need <strong>${formatDuration(remainingMin * 60)}</strong> more this week — about <strong>${forecast.pace.perDay}m/day</strong> over the next ${daysLeft} day${daysLeft === 1 ? '' : 's'}.`;
+
+    perDay.textContent = onTrack ? '✓' : forecast.pace.perDay + 'm';
+    nextWeek.textContent = formatDuration(forecast.nextWeekForecast * 60);
+    const riskPct = Math.round(forecast.streakRisk.risk * 100);
+    riskEl.textContent = riskPct + '%';
+    riskEl.style.color = riskPct > 66 ? 'var(--danger,#ef4444)' : riskPct > 33 ? 'var(--warning,#f59e0b)' : 'var(--success,#10b981)';
+
+    if (typeof Chart !== 'undefined') {
+      Chart.getChart('forecastChart')?.destroy();
+      const hist = forecast.history;
+      // Build a projection line: past weekly minutes + forecast weeks ahead.
+      const labels = [...hist.labels];
+      const actual = [...hist.minutes];
+      const projected = new Array(hist.minutes.length).fill(null);
+      const model = holtForecast(hist.currentWeekIndex > 0 ? hist.minutes.slice(0, hist.currentWeekIndex) : hist.minutes);
+      for (let k = 1; k <= 3; k++) {
+        labels.push('+W' + k);
+        actual.push(null);
+        projected.push(Math.round(model.forecast(k)));
+      }
+      // Anchor the projection to the last actual value for visual continuity.
+      projected[hist.minutes.length - 1] = hist.minutes[hist.minutes.length - 1] || 0;
+
+      new Chart(document.getElementById('forecastChart'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Actual (min/week)',
+              data: actual,
+              borderColor: '#1a7a3c',
+              backgroundColor: 'rgba(26,122,60,0.12)',
+              spanGaps: false,
+              tension: 0.25,
+              fill: true,
+            },
+            {
+              label: 'Forecast (Holt trend)',
+              data: projected,
+              borderColor: '#6366f1',
+              borderDash: [6, 4],
+              spanGaps: true,
+              tension: 0.25,
+              fill: false,
+              pointStyle: 'rectRot',
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom' } },
+          scales: { y: { beginAtZero: true, title: { display: true, text: 'Minutes' } } },
+        },
+      });
     }
   },
 
@@ -3398,6 +3523,11 @@ const app = {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icons[o]}</svg>
           ${labels[o]}
         </button>`).join('') + `</div>`;
+    } else if (def.type === 'colors') {
+      control = `<div class="settings-colors" data-control="${key}">` + Object.entries(def.options).map(([k, o]) => `
+        <button class="color-swatch ${val === k ? 'selected' : ''}" data-value="${k}" title="${escapeHtml(o.label)}" aria-label="${escapeHtml(o.label)}" style="background:${o.value}">
+          ${val === k ? '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+        </button>`).join('') + `</div>`;
     } else if (def.type === 'select') {
       let opts = def.options;
       if (def.dynamic === 'subjects') {
@@ -3471,6 +3601,11 @@ const app = {
       const def = Settings.SCHEMA[key];
       if (!def) return;
       if (def.type === 'theme') {
+        node.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+          Settings.set(key, b.dataset.value);
+          this.renderSettings();
+        }));
+      } else if (def.type === 'colors') {
         node.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
           Settings.set(key, b.dataset.value);
           this.renderSettings();

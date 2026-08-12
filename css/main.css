@@ -50,6 +50,7 @@
   --shadow-sm:    0 1px 3px rgba(0,0,0,0.3);
   --shadow:       0 2px 8px rgba(0,0,0,0.3), 0 1px 3px rgba(0,0,0,0.2);
   --shadow-lg:    0 8px 24px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.3);
+  --surface-edge: rgba(255,255,255,0.6);
 }
 
 html {
@@ -58,10 +59,64 @@ html {
 
 /* Accent palettes — selected via [data-accent] (Settings → Appearance). */
 [data-accent="violet"]   { --accent:#7c3aed; --accent-h:#6d28d9; --accent-bg:#f3e8ff; --accent-text:#7c3aed; }
+[data-accent="blue"]     { --accent:#2563eb; --accent-h:#1d4ed8; --accent-bg:#dbeafe; --accent-text:#2563eb; }
+[data-accent="cyan"]     { --accent:#0891b2; --accent-h:#0e7490; --accent-bg:#cffafe; --accent-text:#0891b2; }
+[data-accent="teal"]     { --accent:#0d9488; --accent-h:#0f766e; --accent-bg:#ccfbf1; --accent-text:#0d9488; }
 [data-accent="emerald"]  { --accent:#059669; --accent-h:#047857; --accent-bg:#d1fae5; --accent-text:#059669; }
-[data-accent="rose"]     { --accent:#e11d48; --accent-h:#be123c; --accent-bg:#ffe4e6; --accent-text:#e11d48; }
+[data-accent="green"]    { --accent:#16a34a; --accent-h:#15803d; --accent-bg:#dcfce7; --accent-text:#16a34a; }
+[data-accent="lime"]     { --accent:#65a30d; --accent-h:#4d7c0f; --accent-bg:#ecfccb; --accent-text:#65a30d; }
 [data-accent="amber"]    { --accent:#d97706; --accent-h:#b45309; --accent-bg:#fef3c7; --accent-text:#d97706; }
+[data-accent="orange"]   { --accent:#ea580c; --accent-h:#c2410c; --accent-bg:#ffedd5; --accent-text:#ea580c; }
+[data-accent="rose"]     { --accent:#e11d48; --accent-h:#be123c; --accent-bg:#ffe4e6; --accent-text:#e11d48; }
+[data-accent="pink"]     { --accent:#db2777; --accent-h:#be185d; --accent-bg:#fce7f3; --accent-text:#db2777; }
+[data-accent="red"]      { --accent:#dc2626; --accent-h:#b91c1c; --accent-bg:#fee2e2; --accent-text:#dc2626; }
+[data-accent="fuchsia"]  { --accent:#c026d3; --accent-h:#a21caf; --accent-bg:#fae8ff; --accent-text:#c026d3; }
 [data-accent="slate"]    { --accent:#475569; --accent-h:#334155; --accent-bg:#f1f5f9; --accent-text:#475569; }
+
+/* Dark-mode accent tuning: keep tints readable on the dark surface. */
+[data-theme="dark"] [data-accent="violet"]   { --accent:#a78bfa; --accent-h:#8b5cf6; --accent-bg:#241a3a; --accent-text:#c4b5fd; }
+[data-theme="dark"] [data-accent="blue"]     { --accent:#60a5fa; --accent-h:#3b82f6; --accent-bg:#16233f; --accent-text:#93c5fd; }
+[data-theme="dark"] [data-accent="cyan"]     { --accent:#22d3ee; --accent-h:#06b6d4; --accent-bg:#0c2b33; --accent-text:#67e8f9; }
+[data-theme="dark"] [data-accent="teal"]     { --accent:#2dd4bf; --accent-h:#14b8a6; --accent-bg:#0c2e2b; --accent-text:#5eead4; }
+[data-theme="dark"] [data-accent="emerald"]  { --accent:#34d399; --accent-h:#10b981; --accent-bg:#0c2e22; --accent-text:#6ee7b7; }
+[data-theme="dark"] [data-accent="green"]    { --accent:#4ade80; --accent-h:#22c55e; --accent-bg:#0f2a18; --accent-text:#86efac; }
+[data-theme="dark"] [data-accent="lime"]     { --accent:#a3e635; --accent-h:#84cc16; --accent-bg:#1f2a0c; --accent-text:#bef264; }
+[data-theme="dark"] [data-accent="amber"]    { --accent:#fbbf24; --accent-h:#f59e0b; --accent-bg:#2e2410; --accent-text:#fcd34d; }
+[data-theme="dark"] [data-accent="orange"]   { --accent:#fb923c; --accent-h:#f97316; --accent-bg:#2e1c10; --accent-text:#fdba74; }
+[data-theme="dark"] [data-accent="rose"]     { --accent:#fb7185; --accent-h:#f43f5e; --accent-bg:#2e141a; --accent-text:#fda4af; }
+[data-theme="dark"] [data-accent="pink"]     { --accent:#f472b6; --accent-h:#ec4899; --accent-bg:#2e1424; --accent-text:#f9a8d4; }
+[data-theme="dark"] [data-accent="red"]      { --accent:#f87171; --accent-h:#ef4444; --accent-bg:#2e1515; --accent-text:#fca5a5; }
+[data-theme="dark"] [data-accent="fuchsia"]  { --accent:#e879f9; --accent-h:#d946ef; --accent-bg:#2a142e; --accent-text:#f0abfc; }
+[data-theme="dark"] [data-accent="slate"]    { --accent:#94a3b8; --accent-h:#64748b; --accent-bg:#1c2230; --accent-text:#cbd5e1; }
+[data-theme="dark"] [data-accent="indigo"]   { --accent:#818cf8; --accent-h:#6366f1; --accent-bg:#181a35; --accent-text:#a5b4fc; }
+
+/* ── Dark-mode polish ──
+   The default white inset highlights and white gradient washes read as
+   "whitish accents sticking out" on the dark surfaces. Swap them for a
+   soft edge in dark mode, and deepen the card gradient so the theme looks
+   intentional rather than a flat inverted light theme. --surface-edge is
+   white (0.6) in light mode and a faint tint in dark (see [data-theme=dark]). */
+[data-theme="dark"] {
+  --surface-edge: rgba(255,255,255,0.05);
+}
+[data-theme="dark"] .modal,
+[data-theme="dark"] .congrats-card {
+  box-shadow: 0 22px 45px -20px color-mix(in srgb, var(--accent) 45%, transparent),
+              inset 0 1px 0 var(--surface-edge);
+}
+[data-theme="dark"] .btn-primary {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 78%, var(--surface)) 0%, var(--accent) 55%, var(--accent-h) 100%);
+}
+[data-theme="dark"] .modal-hero,
+[data-theme="dark"] .congrats-card {
+  background: radial-gradient(100% 100% at 50% 0%, color-mix(in srgb, var(--accent) 14%, var(--surface)) 0%, var(--surface) 72%);
+}
+[data-theme="dark"] [class*="illo"] {
+  filter: brightness(0.92) saturate(1.05);
+}
+[data-theme="dark"] .note-composer-glyph {
+  background: linear-gradient(135deg, var(--accent-h), var(--accent));
+}
 
 /* Compact density — tighter paddings and gaps. */
 [data-density="compact"] .card { padding: 12px; }
@@ -85,6 +140,12 @@ html, body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
+}
+
+[data-theme="dark"] body {
+  background:
+    radial-gradient(120% 80% at 50% -10%, color-mix(in srgb, var(--accent) 8%, var(--bg)) 0%, transparent 60%),
+    var(--bg);
 }
 
 a { color: inherit; text-decoration: none; }
@@ -459,6 +520,20 @@ select { cursor: pointer; }
 }
 .modal-header h2, .modal-header h3 { font-size: 1.1rem; font-weight: 700; }
 
+/* ── Forecast (Statistics) ── */
+.forecast-stat { text-align: center; padding: 8px 4px; }
+.forecast-stat .stat-value { font-size: 1.5rem; }
+.forecast-stat .stat-label { font-size: .78rem; }
+
+/* Chart containers must shrink to their grid cell at every screen size.
+   Grid/flex items default to min-width:auto, which lets a Chart.js canvas
+   force the column wider than the viewport on phones, tablets and laptops. */
+.stats-charts { grid-template-columns: repeat(2, 1fr); }
+.stats-charts > .card,
+#forecastCard { min-width: 0; }
+.stats-charts .card canvas,
+#forecastCard canvas { width: 100% !important; max-height: 240px; }
+
 /* ── Grid ── */
 .grid { display: grid; gap: 14px; }
 .grid-2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
@@ -594,6 +669,26 @@ select { cursor: pointer; }
 }
 .settings-row-control input { width: 90px; text-align: center; }
 
+.settings-colors {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.settings-colors .color-swatch {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.08) inset;
+}
+.settings-colors .color-swatch svg { width: 18px; height: 18px; }
+.settings-colors .color-swatch.selected {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
+
 .settings-theme-btns {
   display: flex;
   gap: 8px;
@@ -645,13 +740,9 @@ select { cursor: pointer; }
   max-width: 920px;
   margin: 0 auto;
   padding: 40px;
-  background:
-    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent) 12%, var(--surface)) 0%, transparent 55%),
-    linear-gradient(135deg, var(--accent-bg) 0%, var(--surface) 100%);
-  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  animation: timerStageIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 @keyframes timerStageIn {
   from { opacity: 0; transform: translateY(10px); }
@@ -673,7 +764,7 @@ select { cursor: pointer; }
   border-radius: 28px;
   background: radial-gradient(100% 100% at 50% 0%, color-mix(in srgb, var(--accent) 10%, var(--surface)) 0%, var(--surface) 70%);
   border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
-  box-shadow: 0 22px 45px -20px color-mix(in srgb, var(--accent) 55%, transparent), inset 0 1px 0 rgba(255,255,255,0.6);
+  box-shadow: 0 22px 45px -20px color-mix(in srgb, var(--accent) 55%, transparent), inset 0 1px 0 var(--surface-edge);
   padding: 18px;
   animation: floatY 5s ease-in-out infinite;
   position: relative;
@@ -707,7 +798,7 @@ select { cursor: pointer; }
 .timer-stage.is-break .timer-companion-illo {
   border-color: color-mix(in srgb, #10b981 22%, var(--border));
   background: radial-gradient(100% 100% at 50% 0%, color-mix(in srgb, #10b981 10%, var(--surface)) 0%, var(--surface) 70%);
-  box-shadow: 0 22px 45px -20px color-mix(in srgb, #10b981 45%, transparent), inset 0 1px 0 rgba(255,255,255,0.6);
+  box-shadow: 0 22px 45px -20px color-mix(in srgb, #10b981 45%, transparent), inset 0 1px 0 var(--surface-edge);
   animation-play-state: paused;
 }
 .timer-stage.is-break .timer-companion-caption { color: #10b981; }
@@ -1890,11 +1981,10 @@ select { cursor: pointer; }
   border-radius: var(--radius-lg);
   padding: 36px 40px;
   background:
-    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent) 14%, var(--surface)) 0%, transparent 55%),
-    radial-gradient(120% 140% at 100% 100%, color-mix(in srgb, var(--accent) 10%, var(--surface)) 0%, transparent 50%),
-    linear-gradient(135deg, var(--accent-bg) 0%, var(--surface) 100%);
-  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
-  box-shadow: none;
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent) 12%, transparent) 0%, transparent 55%),
+    radial-gradient(120% 140% at 100% 100%, color-mix(in srgb, var(--surface-2) 80%, transparent) 0%, transparent 50%),
+    var(--surface);
+  border: 1px solid var(--border);
 }
 .dash-hero::before,
 .dash-hero::after {
@@ -1967,7 +2057,7 @@ select { cursor: pointer; }
   border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
   box-shadow:
     0 22px 45px -20px color-mix(in srgb, var(--accent) 55%, transparent),
-    inset 0 1px 0 rgba(255,255,255,0.6);
+    inset 0 1px 0 var(--surface-edge);
   padding: 18px;
   animation: floatY 5s ease-in-out infinite;
 }
@@ -2235,9 +2325,8 @@ select { cursor: pointer; }
   .grid-4 { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .stat-value { font-size: 1.3rem; }
 
-  /* Stats page charts stack */
+  /* Stats page charts stack to one column on phones */
   .stats-charts { grid-template-columns: 1fr; }
-  .stats-charts .card canvas { max-height: 220px; }
 
   /* Grids */
   .grid-2 { grid-template-columns: 1fr; }
@@ -2440,12 +2529,33 @@ select { cursor: pointer; }
 
 /* ── Quests & Levels ── */
 .quest-hero {
+  position: relative;
   display: flex;
   gap: 18px;
   align-items: center;
   padding: 20px;
-  background: linear-gradient(135deg, var(--accent-bg), var(--surface));
+  overflow: hidden;
   border: 1px solid var(--border);
+}
+.quest-hero::before,
+.quest-hero::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(8px);
+  pointer-events: none;
+}
+.quest-hero::before {
+  top: -40px; right: 6%;
+  width: 150px; height: 150px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 45%, transparent) 0%, transparent 70%);
+  opacity: 0.18;
+}
+.quest-hero::after {
+  bottom: -50px; left: 4%;
+  width: 180px; height: 180px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, transparent) 0%, transparent 70%);
+  opacity: 0.12;
 }
 .quest-hero-compact { padding: 16px; }
 .quest-hero-avatar {
