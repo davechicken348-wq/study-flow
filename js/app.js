@@ -1410,20 +1410,29 @@ const app = {
               </a>
             </div>
           ` : `
-            <div class="card-header">
+            <div class="card-header timer-details-header">
+              <span class="timer-details-ico" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              </span>
               <h2>Session details</h2>
             </div>
             <div class="timer-active-config">
               <div class="timer-active-row">
-                <span class="muted text-sm">Subject</span>
+                <span class="timer-active-key"><span class="timer-active-ico">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                </span>Subject</span>
                 <strong>${escapeHtml((subjects.find((x) => x.id === eng.subjectId) || {}).name || '—')}</strong>
               </div>
               <div class="timer-active-row">
-                <span class="muted text-sm">Quest</span>
+                <span class="timer-active-key"><span class="timer-active-ico">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="6"/><path d="M8.5 13.5 7 22l5-3 5 3-1.5-8.5"/></svg>
+                </span>Quest</span>
                 <strong>${eng.goalId ? escapeHtml((goals.find((g) => g.id === eng.goalId) || {}).label || 'Linked quest') : 'None'}</strong>
               </div>
               <div class="timer-active-row">
-                <span class="muted text-sm">Focus / Break / Rounds</span>
+                <span class="timer-active-key"><span class="timer-active-ico">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </span>Focus · Break · Rounds</span>
                 <strong>${Settings.get('focusLength')}m / ${Settings.get('breakLength')}m × ${Settings.get('rounds')}</strong>
               </div>
               ${eng.goalId ? this.timerQuestProgressHtml(eng.goalId) : ''}

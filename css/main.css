@@ -1127,17 +1127,39 @@ select { cursor: pointer; }
 .preset-btn { border-color: var(--border, #e6e6f0); }
 .preset-btn:hover { border-color: var(--accent); }
 
-/* Active-session summary: a soft "card within the stage" rather than bare
-   rows, so the screen stays gentle while you study. */
+/* Active-session "Session details" panel: a soft, inset card with a tinted
+   header and a clean key/value list so the running session's context reads
+   at a glance without pulling focus from the timer ring. */
+.timer-details-header {
+  align-items: center;
+  margin-bottom: 12px;
+}
+.timer-details-header h2 {
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.timer-details-ico {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  background: var(--accent-bg);
+  flex-shrink: 0;
+}
+.timer-details-ico svg { width: 16px; height: 16px; }
+
 .timer-active-config {
   width: 100%;
-  max-width: 320px;
   display: flex;
   flex-direction: column;
   gap: 2px;
   margin-bottom: 4px;
-  padding: 18px 20px;
-  background: var(--surface-2);
+  padding: 6px 16px;
+  background: var(--surface-2, var(--accent-bg));
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
@@ -1146,13 +1168,50 @@ select { cursor: pointer; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 0;
+  padding: 11px 0;
 }
 .timer-active-row + .timer-active-row { border-top: 1px solid var(--border); }
-.timer-active-row strong { font-weight: 700; color: var(--text); font-size: 0.9rem; }
-.timer-active-row .muted { font-size: 0.74rem; letter-spacing: 0.03em; }
-.timer-quest-progress { gap: 10px; }
+.timer-active-row strong {
+  font-weight: 700;
+  color: var(--text);
+  font-size: 0.92rem;
+  text-align: right;
+}
+.timer-active-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-2);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.timer-active-ico {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.timer-active-ico svg { width: 13px; height: 13px; }
+
+/* Quest progress row — visually distinct so it reads as a live meter. */
+.timer-quest-progress {
+  gap: 10px;
+  align-items: center;
+  margin-top: 2px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.timer-quest-progress .muted { flex-shrink: 0; color: var(--text-2); font-weight: 600; font-size: 0.8rem; }
+.timer-quest-progress .flex.items-center.gap-xs { min-width: 0; }
+.timer-quest-progress .progress-bar { min-width: 0; height: 8px; }
 .timer-quest-progress .muted { flex-shrink: 0; }
+.timer-quest-progress .flex.items-center.gap-xs { min-width: 0; }
+.timer-quest-progress .progress-bar { min-width: 0; }
 
 .planner-day {
   min-height: 140px;
