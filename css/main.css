@@ -871,6 +871,19 @@ select { cursor: pointer; }
   .settings-theme-btns { width: 100%; }
   .settings-theme-btn { flex: 1; justify-content: center; }
   .settings-row-control { width: 100%; }
+
+  /* Accent-color swatches: let them fill the row and wrap cleanly on narrow
+     screens instead of overflowing the card edge. */
+  .settings-colors {
+    width: 100%;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+  .settings-colors .color-swatch {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 auto;
+  }
   .settings-row-control input { flex: 1; width: auto; }
 }
 
