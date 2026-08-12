@@ -1106,6 +1106,83 @@ select { cursor: pointer; }
 .planner-session-time { color: var(--text-3); font-size: 0.72rem; font-weight: 500; }
 .planner-session-actions { display: flex; gap: 4px; margin-top: 4px; }
 
+.planner-day-total {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.planner-session {
+  border-left-color: var(--subj, var(--accent));
+}
+.planner-session-review {
+  background: color-mix(in srgb, var(--subj, var(--accent)) 12%, var(--surface));
+}
+.planner-session-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.planner-tag {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.planner-tag-study { color: var(--subj, var(--accent)); background: color-mix(in srgb, var(--subj, var(--accent)) 16%, transparent); }
+.planner-tag-review { color: #8b5cf6; background: color-mix(in srgb, #8b5cf6 16%, transparent); }
+
+.mastery-dots { display: inline-flex; gap: 2px; align-items: center; }
+.mastery-dots i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--border);
+  display: inline-block;
+}
+.mastery-dots i.on { background: var(--accent); }
+.planner-session .mastery-dots i.on { background: var(--subj, var(--accent)); }
+
+.planner-hint {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.planner-hint .empty-illo { width: 84px; height: 84px; opacity: 0.9; flex-shrink: 0; }
+.planner-hint h3 { margin-bottom: 4px; }
+
+/* ── This week's focus priority panel ── */
+.planner-priority { padding: 16px; }
+.planner-priority-list { display: grid; gap: 12px; margin-top: 12px; }
+.planner-priority-row {
+  border-left: 3px solid var(--subj, var(--accent));
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2, var(--accent-bg));
+}
+.planner-priority-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.planner-priority-name { font-weight: 700; color: var(--text); }
+.planner-priority-meta { margin: 4px 0 6px; }
+.planner-priority-bar { height: 6px; }
+
+/* segmented toggle (used in session form for Study/Review) */
+.seg-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.seg-toggle .seg-btn {
+  border: none;
+  background: var(--surface);
+  color: var(--text-2);
+  padding: 7px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.seg-toggle .seg-btn.active { background: var(--accent); color: #fff; }
+
 /* ── Note card ── */
 .note-card {
   --subj: var(--accent);

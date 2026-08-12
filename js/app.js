@@ -7,6 +7,7 @@ import { FocusEngine, PHASE, FOCUS_DEFAULTS } from './focusEngine.js';
 import Settings from './settings.js';
 import { ensureDailyQuest, isDailyQuest, buildDailyQuest } from './questSeed.js';
 import { buildForecast, holtForecast, weeklyMinutesSeries } from './forecast.js';
+import { autoPlanWeek, explainPlan, estimateMastery } from './plannerEngine.js';
 import { playPhaseSound, unlockAudio } from './sounds.js';
 
 function attachQuestionToggle(container) {
@@ -980,11 +981,29 @@ const app = {
     const weekDates = getWeekDates(refDate);
     const el = document.getElementById('pageContent');
 
+    const weekSet = new Set(weekDates);
+    const plannedCount = sessions.filter((s) => weekSet.has(s.date) && s.source === 'planner').length;
+
     el.innerHTML = `
-      <div class="page-header">
-        <h1>Planner</h1>
-        <p class="muted">Week of ${formatDate(getStartOfWeek(refDate).toISOString())}</p>
+      <div class="page-header flex justify-between items-center page-header-inline">
+        <div>
+          <h1>Planner</h1>
+          <p class="muted">Week of ${formatDate(getStartOfWeek(refDate).toISOString())}</p>
+        </div>
+        <div class="flex gap-xs items-center">
+          <button class="btn btn-ghost btn-sm" id="plannerClearBtn" aria-label="Clear plan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+            Clear
+          </button>
+          <button class="btn btn-primary btn-sm" id="plannerAutoBtn" aria-label="Auto-plan week">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M12 2v4"/><path d="M12 18v4"/><path d="m4.93 4.93 2.83 2.83"/><path d="m16.24 16.24 2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="m4.93 19.07 2.83-2.83"/><path d="m16.24 7.76 2.83-2.83"/><circle cx="12" cy="12" r="3"/></svg>
+            Auto-plan week
+          </button>
+        </div>
       </div>
+
+      ${this.plannerPriorityHtml(subjects, sessions, refDate)}
+
       <div class="grid grid-7 gap-sm mt">
         ${weekDates.map((date) => {
           const daySessions = sessions.filter((s) => s.date === date && s.source !== 'timer').sort((a, b) => {
@@ -996,21 +1015,30 @@ const app = {
           const d = new Date(date + 'T12:00:00');
           const dayName = d.toLocaleDateString(Settings.locale(), { weekday: 'short' });
           const dayNum = d.getDate();
+          const dayTotal = Math.round(daySessions.reduce((sum, s) => sum + (s.duration || 0), 0) / 60);
           return `
             <div class="planner-day ${isToday ? 'today' : ''}">
               <div class="planner-day-header">
                 <div class="planner-day-date">${dayNum}</div>
                 <div>${dayName}</div>
               </div>
+              ${dayTotal > 0 ? `<div class="planner-day-total">${dayTotal}m</div>` : ''}
               <div class="flex flex-col gap-xs mt-sm">
                 ${daySessions.length === 0 ? '<p class="muted text-sm">No sessions</p>' : daySessions.map((s) => {
                   const subj = subjects.find((x) => x.id === s.subjectId);
                   const start = s.startTime ? formatTime(s.startTime) : '';
                   const end = s.endTime ? formatTime(s.endTime) : '';
+                  const type = s.type || 'study';
+                  const mastery = typeof s.mastery === 'number' ? s.mastery : (subj ? Number(estimateMastery(subj, sessions, refDate).toFixed(2)) : null);
+                  const typeLabel = type === 'review' ? 'Review' : 'Study';
                   return `
-                    <div class="planner-session">
+                    <div class="planner-session planner-session-${type}" style="--subj: ${subj ? escapeHtml(subj.color) : 'var(--accent)'}">
                       <div class="planner-session-name">${subj ? escapeHtml(subj.name) : 'Unknown'}</div>
                       <div class="planner-session-time">${start}${start && end ? ' - ' : ''}${end}</div>
+                      <div class="planner-session-meta">
+                        <span class="planner-tag planner-tag-${type}">${typeLabel}</span>
+                        ${mastery != null ? `<span class="planner-mastery" title="Mastery ${Math.round(mastery * 100)}%">${this.masteryDots(mastery)}</span>` : ''}
+                      </div>
                       <div class="planner-session-actions flex gap-xs mt-sm">
                         <button class="btn btn-ghost btn-sm" data-action="edit-planner-session" data-id="${s.id}" aria-label="Edit">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/></svg>
@@ -1030,8 +1058,18 @@ const app = {
           `;
         }).join('')}
       </div>
+      ${plannedCount === 0 ? `
+        <div class="planner-hint card mt">
+          <img class="empty-illo" src="assets/illustrations/Robot-Learning-From-Human--Streamline-Bangalore.png" alt="">
+          <div>
+            <h3>Let the planner do the work</h3>
+            <p class="muted">Hit <strong>Auto-plan week</strong> and StudyFlow spaces out your subjects using spaced-repetition — reviewing the ones you're about to forget, balancing the load, and hitting each subject's weekly goal.</p>
+          </div>
+        </div>` : ''}
     `;
 
+    document.getElementById('plannerAutoBtn')?.addEventListener('click', () => this.runAutoPlan(refDate));
+    document.getElementById('plannerClearBtn')?.addEventListener('click', () => this.clearPlan(refDate));
     el.querySelectorAll('[data-action="add-session-day"]').forEach((b) => {
       b.addEventListener('click', () => this.showSessionForm({ date: b.dataset.date }));
     });
@@ -1046,10 +1084,84 @@ const app = {
     });
   },
 
+  // Priority panel that explains, per subject, why the auto-planner would
+  // schedule it (driven by the same engine the auto-plan uses).
+  plannerPriorityHtml(subjects, sessions, refDate) {
+    const active = subjects.filter((s) => !s.archived);
+    if (active.length === 0) return '';
+    const rows = active
+      .map((s) => ({ s, info: explainPlan(s, sessions, refDate) }))
+      .sort((a, b) => a.info.mastery - b.info.mastery);
+    return `
+      <div class="card planner-priority mt">
+        <div class="card-header flex justify-between items-center">
+          <h2>This week's focus</h2>
+          <span class="muted text-sm">Spaced by mastery</span>
+        </div>
+        <div class="planner-priority-list">
+          ${rows.map(({ s, info }) => {
+            const goalMin = Math.round((Number(s.weeklyGoal) || 0) / 60);
+            const pct = goalMin > 0 ? Math.min(100, Math.round((info.minutes / goalMin) * 100)) : 100;
+            return `
+              <div class="planner-priority-row" style="--subj: ${escapeHtml(s.color)}">
+                <div class="planner-priority-main">
+                  <span class="planner-priority-name">${escapeHtml(s.name)}</span>
+                  <span class="planner-mastery" title="Mastery ${Math.round(info.mastery * 100)}%">${this.masteryDots(info.mastery)}</span>
+                  <span class="badge ${info.band === 'Struggling' ? 'badge-warning' : info.band === 'Mastered' ? 'badge-success' : 'badge-primary'}">${info.band}</span>
+                </div>
+                <div class="planner-priority-meta muted text-xs">${info.sessions} sessions · ${info.minutes}m planned · review every ~${info.intervalDays}d</div>
+                ${goalMin > 0 ? `
+                  <div class="progress-bar planner-priority-bar"><div class="progress-fill" style="width:${pct}%"></div></div>` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  },
+
+  masteryDots(mastery) {
+    const filled = Math.round(Math.max(0, Math.min(1, mastery)) * 5);
+    let html = '<span class="mastery-dots">';
+    for (let i = 0; i < 5; i++) html += `<i class="${i < filled ? 'on' : ''}"></i>`;
+    html += '</span>';
+    return html;
+  },
+
+  async runAutoPlan(refDate) {
+    const [sessions, subjects] = await Promise.all([
+      Storage.getAllSessions(), Storage.getAllSubjects(),
+    ]);
+    const result = autoPlanWeek({ subjects, sessions, refDate });
+    if (result.sessions.length === 0) {
+      this.toast('Add subjects with weekly goals first', 'error');
+      return;
+    }
+    // Replace existing planner-generated sessions for the week, keep timer ones.
+    const weekSet = new Set(result.weekDates);
+    const toDelete = sessions.filter((s) => weekSet.has(s.date) && s.source === 'planner');
+    await Promise.all(toDelete.map((s) => Storage.deleteSession(s.id)));
+    await Promise.all(result.sessions.map((s) => Storage.saveSession(s)));
+    this.toast(`Planned ${result.sessions.length} sessions · ${Math.round(result.summary.totalMinutes / 60)}h this week`, 'success');
+    this.renderPlanner(refDate);
+  },
+
+  async clearPlan(refDate) {
+    const sessions = await Storage.getAllSessions();
+    const weekSet = new Set(getWeekDates(refDate));
+    const toDelete = sessions.filter((s) => weekSet.has(s.date) && s.source === 'planner');
+    if (toDelete.length === 0) { this.toast('No planned sessions to clear', 'success'); return; }
+    if (!confirm(`Remove ${toDelete.length} planned session${toDelete.length > 1 ? 's' : ''}?`)) return;
+    await Promise.all(toDelete.map((s) => Storage.deleteSession(s.id)));
+    this.toast('Plan cleared', 'success');
+    this.renderPlanner(refDate);
+  },
+
   async showSessionForm(session) {
     const subjects = await Storage.getAllSubjects();
     const isEdit = !!(session && session.id);
-    const data = (session && session.id) ? session : { id: generateId(), subjectId: '', date: session?.date || getToday(), startTime: '', endTime: '', description: '', source: 'planner' };
+    const data = (session && session.id) ? session : { id: generateId(), subjectId: '', date: session?.date || getToday(), startTime: '', endTime: '', description: '', source: 'planner', type: 'study' };
+    const sessType = data.type || (data.source === 'planner' ? 'study' : 'study');
 
     this.openModal(`
       <div class="modal-overlay">
@@ -1080,6 +1192,15 @@ const app = {
               <label>Description</label>
               <textarea id="sessionDesc">${data.description || ''}</textarea>
             </div>
+            <div class="form-group">
+              <label>Session type</label>
+              <div class="seg-toggle" id="sessionTypeToggle">
+                <button type="button" class="seg-btn ${sessType === 'study' ? 'active' : ''}" data-type="study">Study</button>
+                <button type="button" class="seg-btn ${sessType === 'review' ? 'active' : ''}" data-type="review">Review</button>
+              </div>
+              <input type="hidden" id="sessionType" value="${sessType}">
+              <span class="muted text-xs">Review sessions are spaced-repetition top-ups the planner suggests for subjects you're about to forget.</span>
+            </div>
             <div class="flex justify-end gap mt">
               <button type="button" class="btn btn-ghost" id="cancelModal">Cancel</button>
               <button type="submit" class="btn btn-primary">Save</button>
@@ -1090,6 +1211,17 @@ const app = {
     `);
 
     document.getElementById('cancelModal').addEventListener('click', () => this.closeModals());
+
+    const typeToggle = document.getElementById('sessionTypeToggle');
+    const typeInput = document.getElementById('sessionType');
+    typeToggle?.querySelectorAll('.seg-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        typeToggle.querySelectorAll('.seg-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        typeInput.value = btn.dataset.type;
+      });
+    });
+
     document.getElementById('sessionForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const id = document.getElementById('sessionId').value;
@@ -1098,6 +1230,7 @@ const app = {
       const startVal = document.getElementById('sessionStart').value;
       const endVal = document.getElementById('sessionEnd').value;
       const desc = document.getElementById('sessionDesc').value.trim();
+      const type = document.getElementById('sessionType').value;
 
       if (!subjectId || !date || !startVal) return this.toast('Please fill required fields', 'error');
       if (endVal && endVal <= startVal) return this.toast('End time must be after start time', 'error');
@@ -1107,7 +1240,7 @@ const app = {
       const duration = endTime ? Math.floor((new Date(endTime) - new Date(startTime)) / 1000) : null;
 
       const existing = id ? (await Storage.getSession(id)) : null;
-      const sess = { ...existing, id, subjectId, date, startTime, endTime, duration, description: desc, paused: false, source: existing?.source || 'planner' };
+      const sess = { ...existing, id, subjectId, date, startTime, endTime, duration, description: desc, type, paused: false, source: existing?.source || 'planner' };
       await Storage.saveSession(sess);
       this.checkGoalCelebrations();
       this.toast(isEdit ? 'Session updated' : 'Session added', 'success');
