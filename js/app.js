@@ -451,7 +451,7 @@ const app = {
                     <div class="font-medium">${subj ? escapeHtml(subj.name) : 'Unknown'}</div>
                     <div class="muted text-sm">${start}${start && end ? ' - ' : ''}${end}${s.description ? ' · ' + escapeHtml(s.description) : ''}</div>
                   </div>
-                  <span class="badge ${timeLabel ? 'badge-warning' : 'badge-success'}">${timeLabel || 'Scheduled'}</span>
+                  <span class="badge ${timeLabel ? 'badge-warning' : 'badge-primary'}">${timeLabel || 'Scheduled'}</span>
                 </div>
               `;
             }).join('')}
@@ -1038,7 +1038,7 @@ const app = {
           const d = new Date(date + 'T12:00:00');
           const dayName = d.toLocaleDateString(Settings.locale(), { weekday: 'short' });
           const dayNum = d.getDate();
-          const dayTotal = Math.round(daySessions.reduce((sum, s) => sum + (s.duration || 0), 0) / 60);
+          const dayTotal = Math.round(daySessions.reduce((sum, s) => sum + (s.plannedMinutes || s.duration || 0), 0) / 60);
           return `
             <div class="planner-day ${isToday ? 'today' : ''}">
               <div class="planner-day-header">
@@ -1109,11 +1109,23 @@ const app = {
 
   // Priority panel that explains, per subject, why the auto-planner would
   // schedule it (driven by the same engine the auto-plan uses).
+  // IMPORTANT: the goal progress bar reflects *actual* studied minutes this
+  // week, never the auto-plan target — otherwise a fresh subject would show
+  // 100% the moment you open the planner.
   plannerPriorityHtml(subjects, sessions, refDate) {
     const active = subjects.filter((s) => !s.archived);
     if (active.length === 0) return '';
+    const weekSet = new Set(getWeekDates(refDate));
     const rows = active
-      .map((s) => ({ s, info: explainPlan(s, sessions, refDate) }))
+      .map((s) => {
+        const info = explainPlan(s, sessions, refDate);
+        const doneMin = Math.round(
+          sessions
+            .filter((x) => x.subjectId === s.id && x.date && weekSet.has(x.date))
+            .reduce((sum, x) => sum + (x.duration || 0), 0) / 60
+        );
+        return { s, info, doneMin };
+      })
       .sort((a, b) => a.info.mastery - b.info.mastery);
     return `
       <div class="card planner-priority mt">
@@ -1122,9 +1134,11 @@ const app = {
           <span class="muted text-sm">Spaced by mastery</span>
         </div>
         <div class="planner-priority-list">
-          ${rows.map(({ s, info }) => {
+          ${rows.map(({ s, info, doneMin }) => {
             const goalMin = Math.round((Number(s.weeklyGoal) || 0) / 60);
-            const pct = goalMin > 0 ? Math.min(100, Math.round((info.minutes / goalMin) * 100)) : 100;
+            const pct = goalMin > 0 ? Math.min(100, Math.round((doneMin / goalMin) * 100)) : 0;
+            const plannedMin = info.minutes;
+            const remainingMin = Math.max(0, goalMin - doneMin);
             return `
               <div class="planner-priority-row" style="--subj: ${escapeHtml(s.color)}">
                 <div class="planner-priority-main">
@@ -1132,7 +1146,7 @@ const app = {
                   <span class="planner-mastery" title="Mastery ${Math.round(info.mastery * 100)}%">${this.masteryDots(info.mastery)}</span>
                   <span class="badge ${info.band === 'Struggling' ? 'badge-warning' : info.band === 'Mastered' ? 'badge-success' : 'badge-primary'}">${info.band}</span>
                 </div>
-                <div class="planner-priority-meta muted text-xs">${info.sessions} sessions · ${info.minutes}m planned · review every ~${info.intervalDays}d</div>
+                <div class="planner-priority-meta muted text-xs">${info.sessions} sessions planned · ${plannedMin}m target · ${doneMin}m done${goalMin > 0 ? ` · ${remainingMin}m to goal` : ''} · review ~${info.intervalDays}d</div>
                 ${goalMin > 0 ? `
                   <div class="progress-bar planner-priority-bar"><div class="progress-fill" style="width:${pct}%"></div></div>` : ''}
               </div>

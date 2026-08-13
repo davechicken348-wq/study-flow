@@ -189,7 +189,12 @@ export function autoPlanWeek(opts = {}) {
         date: d,
         startTime: isoLocal(d, slot.start),
         endTime: isoLocal(d, slot.end),
-        duration: lengthMin * 60,
+        // NOTE: planned sessions are *intent*, not time studied. We store the
+        // scheduled length in `plannedMinutes` and leave `duration` null so the
+        // rest of the app (Subjects goal bars, Statistics, streaks, Dashboard)
+        // never counts planned time as completed study time.
+        duration: null,
+        plannedMinutes: lengthMin,
         description: label,
         source: 'planner',
         type,
