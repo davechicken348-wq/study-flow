@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head><body>
+<pre id="out">running...</pre>
+<script type="module">
+const out = document.getElementById('out');
+const log = [];
+const RealCtor = window.AudioContext || window.webkitAudioContext;
+function Patched(...args) {
+  const inst = new RealCtor(...args);
+  if (!window.__AN) { window.__AN = inst.createAnalyser(); window.__AN.fftSize = 2048; }
+  return inst;
+}
+Patched.prototype = RealCtor.prototype;
+window.AudioContext = Patched; window.webkitAudioContext = Patched;
+function rmsOf() {
+  const an = window.__AN; if (!an) return -1;
+  const buf = new Float32Array(an.fftSize); an.getFloatTimeDomainData(buf);
+  let s = 0; for (const v of buf) s += v * v; return Math.sqrt(s / buf.length);
+}
+try {
+  const mod = await import('./js/sounds.js?t=' + Date.now() + Math.random());
+  const { playSoundscape, stopSoundscape, __probe, __probeNoise } = mod;
+  log.push('probe ' + JSON.stringify(__probe()));
+  log.push('noise brown=' + JSON.stringify(__probeNoise('brown')));
+  log.push('noise white=' + JSON.stringify(__probeNoise('white')));
+  log.push('noise pink=' + JSON.stringify(__probeNoise('pink')));
+  const presets = ['brown','white','rain','hum','lofi','beat','jazz','blues','bluesS'];
+  for (const p of presets) {
+    await playSoundscape(p, 0.9);
+    let peak = 0;
+    for (let i = 0; i < 10; i++) { await new Promise(r => setTimeout(r, 100)); peak = Math.max(peak, rmsOf()); }
+    log.push(p.padEnd(7) + ' peakRms=' + peak.toFixed(4) + ' state=ok');
+    await stopSoundscape();
+    await new Promise(r => setTimeout(r, 150));
+  }
+  const res = 'RESULTS\n' + log.join('\n');
+  out.textContent = res;
+  location.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(res);
+} catch (e) { out.textContent = 'ERROR ' + (e && e.stack || e); }
+</script>
+</body></html>

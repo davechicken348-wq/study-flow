@@ -8,7 +8,7 @@ import Settings from './settings.js';
 import { ensureDailyQuest, isDailyQuest, buildDailyQuest } from './questSeed.js';
 import { buildForecast, holtForecast, weeklyMinutesSeries } from './forecast.js';
 import { autoPlanWeek, explainPlan, estimateMastery } from './plannerEngine.js';
-import { playPhaseSound, unlockAudio } from './sounds.js';
+import { playPhaseSound, unlockAudio, SOUNDSCAPES, SOUNDSCAPE_CATEGORIES, playSoundscape, setSoundscapeVolume, stopSoundscape, currentSoundscape } from './sounds.js';
 
 function attachQuestionToggle(container) {
   if (!container) return;
@@ -275,6 +275,7 @@ const app = {
       planner: () => this.renderPlanner(),
       timer: () => this.renderTimer(),
       notes: () => this.renderNotes(),
+      sounds: () => this.renderSounds(),
       statistics: () => this.renderStatistics(),
       goals: () => this.renderGoals(),
       settings: () => this.renderSettings(),
@@ -1701,6 +1702,14 @@ const app = {
     eng.start({ subjectId, goalId, sessionId: session.id });
     this.bindEngine();
     await this.persistEngine();
+    // Auto-start the soundscape alongside the focus session when enabled.
+    if (Settings.get('soundscapeWithTimer')) {
+      const sc = Settings.get('soundscape');
+      if (sc && sc !== 'none') {
+        unlockAudio();
+        playSoundscape(sc, (Number(Settings.get('soundscapeVolume')) || 60) / 100);
+      }
+    }
     this.renderTimer();
     this.pendingGoalId = null;
     this.toast('Focus session started', 'success');
@@ -1709,6 +1718,7 @@ const app = {
   async pauseTimer() {
     if (!this.engine) return;
     this.engine.pause();
+    if (Settings.get('soundscapeWithTimer')) stopSoundscape();
     await this.persistEngine();
     await this.saveSessionDuration();
     this.renderTimer();
@@ -1717,6 +1727,10 @@ const app = {
   async resumeTimer() {
     if (!this.engine) return;
     this.engine.resume();
+    if (Settings.get('soundscapeWithTimer')) {
+      const sc = Settings.get('soundscape');
+      if (sc && sc !== 'none') playSoundscape(sc, (Number(Settings.get('soundscapeVolume')) || 60) / 100);
+    }
     await this.persistEngine();
     this.renderTimer();
   },
@@ -1739,6 +1753,7 @@ const app = {
     if (!this.engine) return;
     const focusSeconds = this.engine.totalFocusSeconds();
     this.engine.stop();
+    if (Settings.get('soundscapeWithTimer')) stopSoundscape();
     await this.saveSessionDuration();
     await this.persistEngine(true);
     this.engine = null;
@@ -3039,6 +3054,179 @@ const app = {
           // leave raw LaTeX if KaTeX fails
         }
       });
+    });
+  },
+
+  /* ------------------------------------------------------------------ */
+  /* Sounds — focus soundscapes                                          */
+  /* ------------------------------------------------------------------ */
+
+  iconForScape(key) {
+    const map = {
+      off:   '<line x1="12" y1="3" x2="12" y2="21"/><line x1="3" y1="12" x2="21" y2="12"/>',
+      waves: '<path d="M2 6c2 0 2 2 4 2s2-4 4-4 2 6 4 6 2-4 4-4 2 2 4 2"/><path d="M2 12c2 0 2 2 4 2s2-4 4-4 2 6 4 6 2-4 4-4 2 2 4 2"/><path d="M2 18c2 0 2 2 4 2s2-4 4-4 2 6 4 6 2-4 4-4 2 2 4 2"/>',
+      cloud: '<path d="M19 16.9A5 5 0 0 0 18 7h-1.26a8 8 0 1 0-11.48 9"/><line x1="8" y1="19" x2="8" y2="21"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="16" y1="19" x2="16" y2="21"/>',
+      music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+      circle: '<circle cx="12" cy="12" r="9"/>',
+      beat:  '<path d="M3 12h4l2-7 4 14 2-7h6"/>',
+      jazz:  '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+      blues: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+      uplift: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+      cinematic: '<path d="M4 4h16v16H4z"/><path d="M9 9h6v6H9z"/>',
+      melody: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+    };
+    return map[key] || map.waves;
+  },
+
+  coverGradient(sc) {
+    const h = sc.hue ?? 240;
+    return `linear-gradient(145deg, hsl(${h} 85% 62%) 0%, hsl(${(h + 40) % 360} 80% 48%) 55%, hsl(${(h + 80) % 360} 75% 38%) 100%)`;
+  },
+
+  coverSolid(sc) {
+    const h = sc.hue ?? 240;
+    return `hsl(${h} 80% 55%)`;
+  },
+
+  renderSoundsScapeCard(key, { active } = {}) {
+    const sc = SOUNDSCAPES[key];
+    if (!sc) return '';
+    return `
+      <button class="track ${active ? 'is-playing' : ''}" data-scape="${key}" aria-pressed="${active}" style="--cover:${this.coverGradient(sc)}; --cover-solid:${this.coverSolid(sc)}">
+        <span class="track-art" aria-hidden="true">
+          <span class="track-art-glow"></span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            ${this.iconForScape(sc.icon)}
+          </svg>
+          <span class="track-eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        </span>
+        <span class="track-meta">
+          <span class="track-title">${escapeHtml(sc.label)}</span>
+          <span class="track-mood">${escapeHtml(sc.mood || '')}</span>
+        </span>
+      </button>
+    `;
+  },
+
+  async renderSounds() {
+    const el = document.getElementById('pageContent');
+    const saved = Settings.get('soundscape') || 'none';
+    const live = currentSoundscape();
+    const volume = Settings.get('soundscapeVolume') ?? 60;
+    const withTimer = !!Settings.get('soundscapeWithTimer');
+
+    const scapeKeys = Object.keys(SOUNDSCAPES);
+
+    const liveSc = live !== 'none' ? SOUNDSCAPES[live] : null;
+    const liveCover = liveSc ? this.coverGradient(liveSc) : 'linear-gradient(145deg, var(--surface-2), var(--border))';
+
+    el.innerHTML = `
+      <div class="page-header flex justify-between items-center page-header-inline">
+        <div>
+          <h1>Music</h1>
+          <p class="muted">Generative soundtracks that adapt to your focus.</p>
+        </div>
+      </div>
+
+      <section class="player ${live !== 'none' ? 'is-live' : ''}" style="--cover:${liveCover}; --cover-solid:${liveSc ? this.coverSolid(liveSc) : 'var(--accent)'}; --vol:${volume}%">
+        <div class="player-cover" aria-hidden="true">
+          <span class="player-ring"></span>
+          <span class="player-art">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              ${this.iconForScape(liveSc ? liveSc.icon : 'off')}
+            </svg>
+          </span>
+          <span class="player-spectrum" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </span>
+        </div>
+        <div class="player-body">
+          <div class="player-eyebrow">${live !== 'none' ? 'Now playing' : 'Library'}</div>
+          <h2 class="player-title">${live !== 'none' ? escapeHtml(liveSc.label) : 'Pick a track'}</h2>
+          <div class="player-sub">${live !== 'none' ? escapeHtml(liveSc.mood || '') : 'Generated live in your browser'}</div>
+          <div class="player-bar">
+            <button class="player-toggle" id="scapeToggleBtn" aria-label="${live !== 'none' ? 'Stop' : 'Play'}">
+              ${live !== 'none'
+                ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>'
+                : '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'}
+            </button>
+            <div class="player-volume">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="player-vol-ico"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a9 9 0 0 1 0 14"/></svg>
+              <input type="range" id="scapeVolume" min="0" max="100" step="5" value="${volume}" style="--vol:${volume}%">
+              <span class="player-vol-val" id="scapeVolumeVal">${volume}%</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="music-rows">
+        ${SOUNDSCAPE_CATEGORIES.map((cat) => {
+          const keys = scapeKeys.filter((k) => SOUNDSCAPES[k].category === cat.id);
+          if (keys.length === 0) return '';
+          return `
+            <div class="music-row">
+              <h3 class="music-row-title">${escapeHtml(cat.label)}</h3>
+              <div class="music-row-scroll">
+                ${keys.map((k) => this.renderSoundsScapeCard(k, { active: k === live && live !== 'none' })).join('')}
+              </div>
+            </div>`;
+        }).join('')}
+      </div>
+
+      <div class="card mt soundscape-controls">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="font-medium">Play during timer</div>
+            <p class="muted text-sm">Auto-start the current track when a focus session begins.</p>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="scapeWithTimer" ${withTimer ? 'checked' : ''}>
+            <span class="toggle-track"></span>
+            <span class="toggle-thumb"></span>
+          </label>
+        </div>
+      </div>
+
+      <p class="muted text-sm mt">Every track is synthesized on-device — no streaming, fully offline.</p>
+    `;
+
+    const startTrack = (key) => {
+      if (key === 'none') {
+        stopSoundscape();
+        Settings.set('soundscape', 'none');
+        this.renderSounds();
+        return;
+      }
+      unlockAudio();
+      playSoundscape(key, (Number(Settings.get('soundscapeVolume')) || 60) / 100);
+      Settings.set('soundscape', key);
+      this.renderSounds();
+    };
+
+    el.querySelectorAll('.track').forEach((card) => {
+      card.addEventListener('click', () => startTrack(card.dataset.scape));
+    });
+
+    document.getElementById('scapeToggleBtn')?.addEventListener('click', () => {
+      if (live !== 'none') {
+        stopSoundscape();
+        this.renderSounds();
+      } else if (saved && saved !== 'none') {
+        startTrack(saved);
+      }
+    });
+
+    const vol = document.getElementById('scapeVolume');
+    vol?.addEventListener('input', () => {
+      const v = Number(vol.value);
+      vol.style.setProperty('--vol', v + '%');
+      document.getElementById('scapeVolumeVal').textContent = v + '%';
+      Settings.set('soundscapeVolume', v);
+      setSoundscapeVolume(v / 100);
+    });
+
+    document.getElementById('scapeWithTimer')?.addEventListener('change', (e) => {
+      Settings.set('soundscapeWithTimer', e.target.checked);
     });
   },
 

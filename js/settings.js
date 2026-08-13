@@ -205,6 +205,28 @@ const SCHEMA = {
     label: 'Vibrate on phase change',
     help: 'On supported devices.',
   },
+  soundscape: {
+    type: 'select',
+    default: 'none',
+    group: 'soundscapes',
+    options: { none: 'Off', rain: 'Rain', hum: 'Focus hum', lofi: 'Lo-fi waves', uplift: 'Uplift', cinematic: 'Cinematic', melody: 'Melody', beat: 'Soft beat', beatUp: 'Focus pulse', jazz: 'Jazz chords', jazzP: 'Jazz piano', blues: 'Blues riff', bluesS: 'Blues shuffle' },
+    label: 'Default soundscape',
+    help: 'Ambient texture played on the Sounds page to help you focus.',
+  },
+  soundscapeVolume: {
+    type: 'range',
+    default: 60,
+    group: 'soundscapes',
+    min: 0, max: 100, step: 5, unit: '%',
+    label: 'Soundscape volume',
+  },
+  soundscapeWithTimer: {
+    type: 'switch',
+    default: false,
+    group: 'soundscapes',
+    label: 'Play during timer',
+    help: 'Auto-start the soundscape when a focus session begins (and stop it on finish).',
+  },
   timerPresets: {
     type: 'custom',
     default: [],
