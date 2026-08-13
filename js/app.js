@@ -351,7 +351,7 @@ const app = {
     ]);
     const today = getToday();
     const todaySessions = sessions.filter((s) => s.date === today);
-    const todayTime = todaySessions.reduce((sum, s) => sum + (s.duration || 0), 0);
+    const todayTime = todaySessions.filter((s) => s.source === 'timer').reduce((sum, s) => sum + (s.duration || 0), 0);
     const weekDates = getWeekDates();
     const weekSessions = sessions.filter((s) => weekDates.includes(s.date));
     const weekTime = weekSessions.reduce((sum, s) => sum + (s.duration || 0), 0);
@@ -1274,10 +1274,18 @@ const app = {
 
       const startTime = `${date}T${startVal}:00`;
       const endTime = endVal ? `${date}T${endVal}:00` : null;
-      const duration = endTime ? Math.floor((new Date(endTime) - new Date(startTime)) / 1000) : null;
-
       const existing = id ? (await Storage.getSession(id)) : null;
-      const sess = { ...existing, id, subjectId, date, startTime, endTime, duration, description: desc, type, paused: false, source: existing?.source || 'planner' };
+      // Only compute a duration when an end time is provided. For an existing
+      // session with no end time (e.g. a timer session being re-saved), keep
+      // its previously recorded duration instead of dropping it to null.
+      const duration = endTime
+        ? Math.floor((new Date(endTime) - new Date(startTime)) / 1000)
+        : (existing ? (existing.duration ?? null) : null);
+
+      // Preserve the source of an existing session — never convert a timer
+      // session into a planner one (that would null its duration and zero the
+      // daily quest study total). New sessions default to 'planner'.
+      const sess = { ...existing, id, subjectId, date, startTime, endTime, duration, description: desc, type, paused: false, source: existing ? existing.source : 'planner' };
       await Storage.saveSession(sess);
       this.checkGoalCelebrations();
       this.toast(isEdit ? 'Session updated' : 'Session added', 'success');
@@ -1844,7 +1852,7 @@ const app = {
       const goal = Number(s.weeklyGoal) || 0;
       if (goal <= 0) continue;
       const weekTotal = sessions
-        .filter((x) => x.subjectId === s.id && x.date && weekSet.has(x.date))
+        .filter((x) => x.subjectId === s.id && x.date && weekSet.has(x.date) && x.source === 'timer')
         .reduce((sum, x) => sum + (x.duration || 0), 0);
       if (weekTotal < goal) continue;
       const key = `subj_${s.id}_${weekKey}`;
@@ -1858,7 +1866,7 @@ const app = {
     if (dailyGoal && dailyGoal.target > 0) {
       const dailyTarget = dailyGoal.target * 3600;
       const todayTotal = sessions
-        .filter((x) => x.date === today)
+        .filter((x) => x.date === today && x.source === 'timer')
         .reduce((sum, x) => sum + (x.duration || 0), 0);
       if (todayTotal >= dailyTarget) {
         const key = `daily_${today}`;
@@ -3317,7 +3325,7 @@ const app = {
       if (goal.kind === 'task' || goal.metric) {
         return (goal.progress || 0) / unit / (goal.target || 1);
       }
-      return sessions.filter((s) => s.date === getToday())
+      return sessions.filter((s) => s.date === getToday() && s.source === 'timer')
         .reduce((sum, s) => sum + (s.duration || 0), 0) / unit;
     }
     if (goal.type === 'subject-weekly') {
@@ -3339,7 +3347,7 @@ const app = {
     }
     const unit = this.questUnitSeconds(daily);
     const secs = (sessions || [])
-      .filter((s) => s.date === getToday())
+      .filter((s) => s.date === getToday() && s.source === 'timer')
       .reduce((sum, s) => sum + (s.duration || 0), 0);
     return secs / unit;
   },
